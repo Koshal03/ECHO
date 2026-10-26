@@ -6,6 +6,7 @@ import '../providers/app_state.dart';
 import '../constants/app_colors.dart';
 import '../widgets/chat_panel.dart';
 import '../widgets/report_block_dialog.dart';
+import '../widgets/gift_widgets.dart';
 import 'call_ended_screen.dart';
 import 'searching_screen.dart';
 
@@ -222,6 +223,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
                     _btn(Icons.cameraswitch_rounded, 'Flip', onTap: () => appState.switchCamera()),
                     _btn(Icons.chat_bubble_rounded, 'Chat',
                         badge: appState.unreadChat, onTap: () => _openChat(appState)),
+                    _btn(Icons.card_giftcard_rounded, 'Gift',
+                        color: AppColors.pink, onTap: () => showGiftSheet(context)),
                     _btn(Icons.skip_next_rounded, 'Skip', onTap: appState.skipToNextStranger),
                     _btn(Icons.call_end_rounded, 'End',
                         active: true, color: AppColors.danger, onTap: appState.endCall),
@@ -230,6 +233,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
               ),
             ),
           ),
+          const GiftOverlayHost(),
         ],
       ),
     );
@@ -253,13 +257,13 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
               onTap: onTap,
               borderRadius: BorderRadius.circular(26),
               child: Container(
-                width: 50,
-                height: 50,
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
                   color: active ? color : Colors.white.withOpacity(0.16),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(icon, color: Colors.white, size: 23),
+                child: Icon(icon, color: Colors.white, size: 21),
               ),
             ),
             if (badge > 0)

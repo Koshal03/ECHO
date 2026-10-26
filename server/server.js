@@ -554,6 +554,138 @@ app.post('/api/wallet/purchase', requireAuth(), requireTerms, walletLimiter, asy
   }
 });
 
+// ---------------- Virtual gifts + wallet history ----------------
+// The SERVER owns gift prices. The app only sends a gift id; a client-edited price is never used.
+const DEFAULT_GIFTS = [
+  { id: 'heart',       name: 'Heart',       price: 10,  animation: 'pop',     popular: false },
+  { id: 'rose',        name: 'Rose',        price: 20,  animation: 'petals',  popular: false },
+  { id: 'golden_star', name: 'Golden Star', price: 50,  animation: 'burst',   popular: true  },
+  { id: 'diamond',     name: 'Diamond',     price: 100, animation: 'sparkle', popular: false },
+];
+let giftCatalog = DEFAULT_GIFTS; // replaced by the gift_catalog table at startup when Supabase is on
+const GIFT_MIN_INTERVAL_MS = 1500;
+const GIFT_REQUEST_ID = /^[A-Za-z0-9_-]{8,64}$/;
+const giftLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, name: 'gifts' });
+const giftInFlight = new Set();        // userId: one gift request at a time per person
+const lastGiftAt = new Map();          // userId -> ms of last accepted gift
+const memGiftRequests = new Map();     // memory-only mode: "user:requestId" -> first result (idempotency)
+
+const SOURCE_TITLES = {
+  welcome_bonus: 'Welcome bonus', google_play: 'Coin pack purchase', rewarded_ad: 'Rewarded ad',
+  admin_gift: 'Gift from Echo', admin_adjust: 'Balance adjustment', gift_refund: 'Gift refund',
+};
+const ledgerTitle = (r) => {
+  if (r.source === 'gift_sent') {
+    const g = giftCatalog.find((x) => x.id === r.productId);
+    return 'Sent ' + (g ? g.name : 'a gift');
+  }
+  return SOURCE_TITLES[r.source] || 'Coins';
+};
+
+app.get('/api/gifts', requireAuth({ allowGuest: true }), (req, res) => {
+  res.json({ gifts: giftCatalog });
+});
+
+app.get('/api/wallet/transactions', requireAuth(), walletLimiter, async (req, res) => {
+  const user = req.auth.record;
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 30, 1), 100);
+  let rows;
+  try {
+    rows = await db.getLedger(user.userId, limit);
+  } catch (e) {
+    console.error('[DB] getLedger failed:', e.message);
+    return dbBusy(res);
+  }
+  if (!rows) { // memory-only mode
+    rows = walletLedgers.filter((e) => e.userId === user.userId).slice(-limit).reverse().map((e) => ({
+      id: e.transactionId, delta: e.coinDelta, source: e.source, productId: e.productId || null, createdAt: e.timestamp,
+    }));
+  }
+  res.json({
+    balance: user.coins,
+    transactions: rows.map((r) => ({ id: r.id, delta: r.delta, title: ledgerTitle(r), source: r.source, createdAt: r.createdAt })),
+  });
+});
+
+app.post('/api/gifts/send', requireAuth(), requireTerms, giftLimiter, async (req, res) => {
+  const { roomId, giftId, requestId } = req.body || {};
+  if (typeof roomId !== 'string' || typeof giftId !== 'string' || typeof requestId !== 'string' || !GIFT_REQUEST_ID.test(requestId)) {
+    return res.status(400).json({ error: 'Invalid gift request.' });
+  }
+  const gift = giftCatalog.find((g) => g.id === giftId);
+  if (!gift) return res.status(400).json({ error: 'That gift is not available.' });
+
+  const user = req.auth.record;
+  const call = activeCalls.get(roomId);
+  const players = call ? [call.user1, call.user2] : [];
+  const me = players.find((p) => p.id === user.userId);
+  const other = players.find((p) => p.id !== user.userId);
+  if (!call || !me || !other) return res.status(409).json({ error: 'This call has ended. No coins were charged.' });
+  if (!io.sockets.sockets.get(other.socketId)) {
+    return res.status(409).json({ error: 'The other person just left. No coins were charged.' });
+  }
+  if (giftInFlight.has(user.userId) || Date.now() - (lastGiftAt.get(user.userId) || 0) < GIFT_MIN_INTERVAL_MS) {
+    return res.status(429).json({ error: 'Slow down a little. Try again in a moment.' });
+  }
+
+  giftInFlight.add(user.userId);
+  try {
+    let result;
+    try {
+      if (db.enabled) {
+        result = await db.sendGift({ senderId: user.userId, recipientId: other.id, callId: roomId, giftId, price: gift.price, requestId });
+        user.coins = result.newBalance;
+      } else {
+        const key = user.userId + ':' + requestId;
+        if (memGiftRequests.has(key)) {
+          result = { ...memGiftRequests.get(key), duplicate: true, newBalance: user.coins };
+        } else {
+          if (user.coins < gift.price) throw new Error('insufficient_coins');
+          user.coins -= gift.price;
+          result = { duplicate: false, giftEventId: 'gft_' + uuidv4(), newBalance: user.coins, price: gift.price };
+          memGiftRequests.set(key, { giftEventId: result.giftEventId, price: gift.price });
+          if (memGiftRequests.size > 5000) memGiftRequests.delete(memGiftRequests.keys().next().value);
+        }
+      }
+    } catch (e) {
+      if (String(e.message).includes('insufficient_coins')) {
+        return res.status(402).json({ error: 'Not enough coins.', balance: user.coins, needed: gift.price });
+      }
+      console.error('[GIFT] send failed:', e.message);
+      return dbBusy(res);
+    }
+
+    if (result.duplicate) { // a retry of a gift that already went through: never charge or send twice
+      return res.json({ success: true, duplicate: true, newBalance: result.newBalance, giftEventId: result.giftEventId });
+    }
+
+    // The call may have ended while the coins were being deducted: give them back.
+    const recipientSocket = activeCalls.has(roomId) ? io.sockets.sockets.get(other.socketId) : null;
+    if (!recipientSocket) {
+      try {
+        const bal = await db.addCoins(user.userId, gift.price, 'gift_refund', giftId, result.giftEventId);
+        user.coins = bal !== null ? bal : user.coins + gift.price;
+      } catch (e) {
+        console.error('[GIFT] REFUND FAILED for', user.userId, result.giftEventId, e.message);
+      }
+      pushLedger({ transactionId: 'tx_' + uuidv4(), userId: user.userId, entryType: 'credit', coinDelta: gift.price,
+        source: 'gift_refund', productId: giftId, reference: result.giftEventId, timestamp: Date.now() });
+      return res.status(409).json({ error: 'The call ended before the gift arrived. Your coins were returned.', newBalance: user.coins });
+    }
+
+    lastGiftAt.set(user.userId, Date.now());
+    pushLedger({ transactionId: 'tx_' + uuidv4(), userId: user.userId, entryType: 'debit', coinDelta: -gift.price,
+      source: 'gift_sent', productId: giftId, reference: result.giftEventId, timestamp: Date.now() });
+    recipientSocket.emit('gift-received', {
+      giftEventId: result.giftEventId, giftId: gift.id, name: gift.name, animation: gift.animation,
+      fromName: cleanText(user.displayName, 30) || 'Stranger', ts: Date.now(),
+    });
+    res.json({ success: true, newBalance: user.coins, giftEventId: result.giftEventId, gift: { id: gift.id, name: gift.name } });
+  } finally {
+    giftInFlight.delete(user.userId);
+  }
+});
+
 // ---------------- Rewarded ads: AdMob Server-Side Verification ----------------
 const REWARD_COINS = 10; // fixed server-side; never trust the client
 const REWARD_NONCE_TTL_MS = 15 * 60 * 1000;
@@ -1095,6 +1227,12 @@ async function loadFromDb() {
   }
   reportQueue.push(...d.reports);
   walletLedgers.push(...d.ledger);
+  try {
+    const cat = await db.loadGiftCatalog();
+    if (cat && cat.length) giftCatalog = cat;
+  } catch (e) {
+    console.warn('[GIFTS] gift_catalog not readable (run supabase_migration_wallet_gifts.sql). Using built-in prices:', e.message);
+  }
   if (IS_PROD && !db.enabled) console.warn('[WARN] Running in PRODUCTION without Supabase: all data is lost on every restart!');
   console.log(`[DB] ${db.enabled ? 'Supabase connected' : 'memory-only mode'}: ` +
     `${d.users.length} users, ${d.guests.length} guests, ${d.blocks.length} blocks, ${d.reports.length} reports loaded`);

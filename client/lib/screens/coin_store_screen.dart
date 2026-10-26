@@ -5,6 +5,8 @@ import '../providers/app_state.dart';
 import '../constants/app_colors.dart';
 import '../models/coin_pack.dart';
 import '../widgets/coin_pack_card.dart';
+import 'package:intl/intl.dart';
+import 'gift_store_screen.dart';
 
 class CoinStoreScreen extends StatefulWidget {
   const CoinStoreScreen({super.key});
@@ -20,6 +22,7 @@ class _CoinStoreScreenState extends State<CoinStoreScreen> {
   void initState() {
     super.initState();
     // Show purchase results (credited / cancelled / pending) from the server flow.
+    Provider.of<AppState>(context, listen: false).loadWalletHistory();
     _sub = Provider.of<AppState>(context, listen: false).messages.listen((msg) {
       if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -97,7 +100,49 @@ class _CoinStoreScreenState extends State<CoinStoreScreen> {
               ),
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
+
+            // Gift Store: spend coins on virtual gifts during calls
+            InkWell(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const GiftStoreScreen()),
+              ),
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceElevated,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppColors.pink.withOpacity(0.4)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(color: AppColors.pink.withOpacity(0.15), shape: BoxShape.circle),
+                      child: const Icon(Icons.card_giftcard_rounded, color: AppColors.pink, size: 26),
+                    ),
+                    const SizedBox(width: 14),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Gift Store',
+                              style: TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.bold)),
+                          SizedBox(height: 2),
+                          Text('Spend coins on Hearts, Roses, Stars and more',
+                              style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.arrow_forward_ios, color: AppColors.textSecondary, size: 14),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
 
             // Rewarded Ad Opportunity (Blueprint Section 7B)
             InkWell(
@@ -186,9 +231,80 @@ class _CoinStoreScreenState extends State<CoinStoreScreen> {
                 },
               );
             }).toList(),
+
+            if (user != null && !user.isGuest) ...[
+              const SizedBox(height: 24),
+              const Text(
+                'Transaction History',
+                style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              _historyList(appState),
+              const SizedBox(height: 12),
+            ],
           ],
         ),
       ),
+    );
+  }
+
+  Widget _historyList(AppState appState) {
+    if (appState.walletHistoryLoading && appState.walletHistory.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(16),
+        child: Center(child: CircularProgressIndicator(color: AppColors.accent)),
+      );
+    }
+    if (appState.walletHistory.isEmpty) {
+      return Text(
+        appState.walletHistoryFailed ? 'Could not load your history. Pull back later to retry.' : 'No transactions yet.',
+        style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+      );
+    }
+    final fmt = DateFormat('d MMM, h:mm a');
+    return Column(
+      children: appState.walletHistory.map((t) {
+        final credit = t.delta >= 0;
+        final isGift = t.source == 'gift_sent';
+        return Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.cardBorder),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                isGift ? Icons.card_giftcard_rounded : (credit ? Icons.add_circle_outline : Icons.remove_circle_outline),
+                color: isGift ? AppColors.pink : (credit ? AppColors.success : AppColors.warning),
+                size: 22,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(t.title,
+                        style: const TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    Text(fmt.format(t.createdAt), style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
+                  ],
+                ),
+              ),
+              Text(
+                credit ? '+${t.delta}' : '${t.delta}',
+                style: TextStyle(
+                  color: credit ? AppColors.success : AppColors.coinGold,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
     );
   }
 }
