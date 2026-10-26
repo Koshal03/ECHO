@@ -1,0 +1,20 @@
+.env
+*.env
+!.env.example
+node_modules/
+build/
+.dart_tool/
+.gradle/
+.idea/
+__pycache__/
+key.properties
+*.jks
+*.keystore
+*service-account*.json
+
+client/android/local.properties
+Echo_full (1).zip
+
+server/.env
+client/android/local.properties
+Echo_full (1).zip

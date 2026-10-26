@@ -1,0 +1,5 @@
+
+# secrets
+*.jks
+*.keystore
+android/key.properties

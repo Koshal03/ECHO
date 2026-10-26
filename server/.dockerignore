@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log
+.env
+.env.*
+!.env.example
+tests
+__pycache__
+app.py
+ads_ssv.py
+requirements.txt
+*.md
+deploy
+.git

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Echo Admin</title>
+<style>
+  :root { --bg:#070b1d; --card:#0f1740; --line:#223070; --txt:#eef1ff; --mut:#9aa7d8; --blue:#2f80ff; --red:#ff4d6d; --green:#2ed573; --amber:#ffb020; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:14px/1.45 system-ui,Segoe UI,Roboto,Arial,sans-serif; }
+  header { display:flex; align-items:center; gap:12px; padding:14px 20px; border-bottom:1px solid var(--line); }
+  header h1 { font-size:18px; margin:0; flex:1; }
+  main { max-width:1100px; margin:0 auto; padding:18px; display:grid; gap:18px; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; }
+  .stat, .panel { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; }
+  .stat b { display:block; font-size:24px; } .stat span { color:var(--mut); font-size:12px; }
+  .panel h2 { font-size:15px; margin:0 0 10px; } .scroll { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:13px; } th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--mut); font-weight:600; font-size:12px; }
+  button { background:var(--blue); color:#fff; border:0; border-radius:8px; padding:6px 10px; font:inherit; cursor:pointer; margin:1px 2px 1px 0; }
+  button.red { background:var(--red); } button.grey { background:#2a3566; } button.amber { background:var(--amber); color:#241800; }
+  input { background:#0a1030; border:1px solid var(--line); color:var(--txt); border-radius:8px; padding:8px 10px; font:inherit; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; } .grow { flex:1; min-width:160px; }
+  .tag { padding:1px 7px; border-radius:99px; font-size:11px; background:#223070; } .tag.bad { background:#5b1020; color:#ffc1cd; } .tag.ok { background:#0f4a2a; color:#b6f3cf; }
+  #login { max-width:340px; margin:12vh auto; } #toast { position:fixed; right:16px; bottom:16px; background:#111c4f; border:1px solid var(--line); padding:10px 14px; border-radius:10px; display:none; max-width:320px; }
+  .empty { color:var(--mut); padding:6px 2px; }
+</style>
+</head>
+<body>
+<header><h1>Echo Admin</h1><span id="who" class="empty"></span><button id="logout" class="grey" style="display:none">Log out</button></header>
+
+<div id="login" class="panel">
+  <h2>Admin sign in</h2>
+  <p class="empty">Enter the ADMIN_PASSWORD set on the server.</p>
+  <div class="row"><input id="pw" type="password" placeholder="Admin password" class="grow" autocomplete="current-password"><button id="go">Sign in</button></div>
+  <p id="loginErr" style="color:var(--red)"></p>
+</div>
+
+<main id="app" style="display:none">
+  <section class="stats" id="stats"></section>
+  <section class="panel"><h2>Open reports</h2><div class="scroll" id="reports"></div></section>
+  <section class="panel"><h2>Live calls</h2><div class="scroll" id="calls"></div></section>
+  <section class="panel"><h2>Recent members</h2><div class="scroll" id="users"></div></section>
+  <section class="panel">
+    <h2>Tools</h2>
+    <div class="row" style="margin-bottom:10px"><input id="bc" class="grow" maxlength="200" placeholder="Message to show to everyone online"><button id="bcGo" class="amber">Broadcast</button></div>
+    <div class="row"><input id="gu" class="grow" placeholder="Username or user id"><input id="ga" type="number" placeholder="Coins (e.g. 100 or -50)" style="width:190px"><button id="gGo" class="amber">Add / remove coins</button></div>
+  </section>
+  <section class="panel"><h2>Recent coin activity</h2><div class="scroll" id="ledger"></div></section>
+</main>
+<div id="toast"></div>
+
+<script>
+(function () {
+  var KEY = 'echoAdminPw';          // kept only for this browser tab (sessionStorage), never in the page source
+  var pw = sessionStorage.getItem(KEY) || '';
+  var timer = null;
+  var $ = function (id) { return document.getElementById(id); };
+
+  // Safe DOM builder: every value goes in as text, so user-written names/descriptions cannot inject HTML.
+  function h(tag, props) {
+    var el = document.createElement(tag);
+    props = props || {};
+    Object.keys(props).forEach(function (k) {
+      if (k === 'onclick') el.addEventListener('click', props[k]); else if (k === 'class') el.className = props[k]; else el.setAttribute(k, props[k]);
+    });
+    for (var i = 2; i < arguments.length; i++) {
+      var c = arguments[i];
+      if (c === null || c === undefined) continue;
+      el.appendChild(typeof c === 'object' ? c : document.createTextNode(String(c)));
+    }
+    return el;
+  }
+  function toast(msg) { var t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(function () { t.style.display = 'none'; }, 3500); }
+
+  function api(path, body) {
+    var opt = { headers: { 'X-Admin-Password': pw } };
+    if (body) { opt.method = 'POST'; opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+    return fetch(path, opt).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) { var e = new Error(j.error || ('HTTP ' + r.status)); e.status = r.status; throw e; } return j; });
+    });
+  }
+  function act(path, body, okMsg) {
+    api(path, body).then(function () { toast(okMsg || 'Done'); refresh(); }).catch(function (e) { toast('Failed: ' + e.message); });
+  }
+
+  function table(head, rows) {
+    if (!rows.length) return h('div', { class: 'empty' }, 'Nothing here.');
+    return h('table', null, h('thead', null, h('tr', null, head.map(function (x) { return h('th', null, x); }))), h('tbody', null, rows));
+  }
+  function fmtTime(ts) { return new Date(ts).toLocaleString(); }
+  function secs(s) { return Math.floor(s / 60) + 'm ' + (s % 60) + 's'; }
+
+  function render(d) {
+    var stats = [['Members', d.totalUsers], ['Guests', d.guests], ['Online now', d.onlineNow], ['Searching', d.searching], ['In call', d.inCall], ['Open reports', d.openReports]];
+    $('stats').replaceChildren.apply($('stats'), stats.map(function (s) { return h('div', { class: 'stat' }, h('b', null, s[1]), h('span', null, s[0])); }));
+
+    var open = d.reports.filter(function (r) { return r.status === 'pending_review'; });
+    $('reports').replaceChildren(table(['When', 'Category', 'Reporter', 'Reported', 'Details', 'Actions'], open.map(function (r) {
+      return h('tr', null,
+        h('td', null, fmtTime(r.createdAt)), h('td', null, r.category), h('td', null, r.reporterName), h('td', null, r.reportedName), h('td', null, r.description || '-'),
+        h('td', null,
+          h('button', { onclick: function () { act('/api/admin/report-status', { reportId: r.reportId, status: 'resolved' }, 'Report resolved'); } }, 'Resolve'),
+          h('button', { class: 'grey', onclick: function () { act('/api/admin/report-status', { reportId: r.reportId, status: 'dismissed' }, 'Report dismissed'); } }, 'Dismiss'),
+          h('button', { class: 'red', onclick: function () {
+            if (confirm('Suspend ' + r.reportedName + ' and resolve this report?')) {
+              api('/api/admin/suspend', { userId: r.reportedUserId, suspended: true })
+                .then(function () { return api('/api/admin/report-status', { reportId: r.reportId, status: 'resolved' }); })
+                .then(function () { toast('User suspended'); refresh(); })
+                .catch(function (e) { toast('Failed: ' + e.message + ' (guests cannot be suspended)'); });
+            } } }, 'Suspend user')));
+    })));
+
+    $('calls').replaceChildren(table(['Users', 'Type', 'Time', ''], d.activeCalls.map(function (c) {
+      return h('tr', null, h('td', null, c.users.join(' and ')), h('td', null, c.mode), h('td', null, secs(c.seconds)),
+        h('td', null, h('button', { class: 'red', onclick: function () { act('/api/admin/kill-call', { roomId: c.id }, 'Call ended'); } }, 'End')));
+    })));
+
+    $('users').replaceChildren(table(['Username', 'Name', 'Status', 'Coins', 'Email', 'Joined', ''], d.recentUsers.map(function (u) {
+      var sus = u.status === 'suspended';
+      return h('tr', null,
+        h('td', null, u.username, u.online ? h('span', { class: 'tag ok', style: 'margin-left:6px' }, 'online') : null),
+        h('td', null, u.displayName), h('td', null, h('span', { class: 'tag' + (sus ? ' bad' : '') }, u.status)), h('td', null, u.coins), h('td', null, u.email || '-'), h('td', null, fmtTime(u.joined)),
+        h('td', null,
+          h('button', { class: sus ? '' : 'red', onclick: function () {
+            if (confirm((sus ? 'Unsuspend ' : 'Suspend ') + u.username + '?')) act('/api/admin/suspend', { userId: u.userId, suspended: !sus }, sus ? 'User reactivated' : 'User suspended');
+          } }, sus ? 'Unsuspend' : 'Suspend'),
+          h('button', { class: 'amber', onclick: function () { $('gu').value = u.username; $('ga').focus(); } }, 'Coins')));
+    })));
+
+    $('ledger').replaceChildren(table(['When', 'User', 'Change', 'Reason'], d.recentLedger.map(function (e) {
+      return h('tr', null, h('td', null, fmtTime(e.timestamp)), h('td', null, e.userId), h('td', null, (e.coinDelta > 0 ? '+' : '') + e.coinDelta), h('td', null, e.source));
+    })));
+  }
+
+  function refresh() {
+    api('/api/admin/overview').then(function (d) { showApp(); render(d); }).catch(function (e) {
+      if (e.status === 401) { signOut(); $('loginErr').textContent = 'Wrong password.'; }
+      else if (e.status === 503) { signOut(); $('loginErr').textContent = 'Admin is disabled: set ADMIN_PASSWORD on the server.'; }
+      else toast('Could not refresh: ' + e.message);
+    });
+  }
+  function showApp() { $('login').style.display = 'none'; $('app').style.display = 'grid'; $('logout').style.display = ''; if (!timer) timer = setInterval(refresh, 8000); }
+  function signOut() { sessionStorage.removeItem(KEY); pw = ''; clearInterval(timer); timer = null; $('app').style.display = 'none'; $('logout').style.display = 'none'; $('login').style.display = ''; }
+
+  $('go').addEventListener('click', function () { pw = $('pw').value; $('loginErr').textContent = ''; if (!pw) return; sessionStorage.setItem(KEY, pw); $('pw').value = ''; refresh(); });
+  $('pw').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('go').click(); });
+  $('logout').addEventListener('click', signOut);
+  $('bcGo').addEventListener('click', function () { var m = $('bc').value.trim(); if (m && confirm('Send this message to everyone online?')) { act('/api/admin/broadcast', { message: m }, 'Broadcast sent'); $('bc').value = ''; } });
+  $('gGo').addEventListener('click', function () { var u = $('gu').value.trim(), a = parseInt($('ga').value, 10); if (!u || !a) return toast('Enter a user and a coin amount'); act('/api/admin/gift-coins', { userId: u, amount: a }, 'Coins updated'); $('ga').value = ''; });
+
+  if (pw) refresh();
+})();
+</script>
+</body>
+</html>
