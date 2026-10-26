@@ -33,6 +33,8 @@ Server ab taiyaar hai. Aap ko sirf neeche ki **details bharni** hain. Code mein 
 SQL Editor mein ye chalao (agar pehle nahi chalaye):
 1. `supabase_schema.sql` (agar naya project hai)
 2. `supabase_migration_otp.sql` (email login aur account deletion ke liye zaroori)
+3. `supabase_migration_wallet_gifts.sql` (Virtual Gifts aur wallet history ke liye zaroori; do baar chalane se kuch nahi bigadta)
+4. `supabase_migration_matching_filters.sql` (Premium Matching Filters ke liye zaroori; do baar chalane se kuch nahi bigadta)
 
 ## 4. Render par (meri salah)
 

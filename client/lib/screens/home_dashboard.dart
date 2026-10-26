@@ -7,6 +7,7 @@ import '../widgets/guest_timer_badge.dart';
 import '../widgets/banner_ad_widget.dart';
 import '../widgets/echo_widgets.dart';
 import 'searching_screen.dart';
+import 'premium_filters_screen.dart';
 import 'coin_store_screen.dart';
 import 'profile_screen.dart';
 import 'safety_screen.dart';
@@ -413,6 +414,42 @@ class _HomeDashboardState extends State<HomeDashboard> {
                 ),
               ),
             ],
+          ),
+
+          const SizedBox(height: 16),
+
+          // Premium Matching: languages, interests, region
+          GlassCard(
+            padding: const EdgeInsets.all(14),
+            radius: 16,
+            onTap: () {
+              if (appState.currentUser?.isGuest ?? true) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Sign up with a username to use Premium Matching.'),
+                    backgroundColor: AppColors.surfaceElevated));
+                return;
+              }
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const PremiumFiltersScreen()));
+            },
+            child: Row(
+              children: const [
+                Icon(Icons.tune_rounded, color: AppColors.coinGold, size: 24),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Premium Matching',
+                          style: TextStyle(color: AppColors.textPrimary, fontSize: 14.5, fontWeight: FontWeight.w800)),
+                      SizedBox(height: 2),
+                      Text('Choose languages & interests for better matches',
+                          style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                    ],
+                  ),
+                ),
+                Icon(Icons.arrow_forward_ios, color: AppColors.textSecondary, size: 14),
+              ],
+            ),
           ),
 
           const SizedBox(height: 20),

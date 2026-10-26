@@ -132,9 +132,10 @@ class SocketService {
     required bool isGuest,
     String? sessionId,
     String mode = 'audio', // 'audio' | 'video' | 'text'
+    bool broaden = false, // true = ignore my Premium Filters for this search
   }) {
-    // Identity comes from the auth token; only the mode is sent.
-    socket?.emit('join-queue', {'mode': mode});
+    // Identity comes from the auth token; only the mode (and the broaden flag) is sent.
+    socket?.emit('join-queue', {'mode': mode, if (broaden) 'broaden': true});
   }
 
   void sendChat(String roomId, String text) {
