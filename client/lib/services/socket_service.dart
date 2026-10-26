@@ -20,6 +20,7 @@ class SocketService {
   Function(Map<String, dynamic>)? onChatMessage;
   Function(String message)? onAdminBroadcast;
   Function(int coins)? onWalletUpdated;
+  Function(Map<String, dynamic>)? onGiftReceived;
   Function(String reason)? onAccountNotice;
   Function()? onTermsRequired;
   Function()? onAuthError;
@@ -86,6 +87,10 @@ class SocketService {
 
       socket?.on('wallet-updated', (data) {
         if (data is Map && data['coins'] is num) onWalletUpdated?.call((data['coins'] as num).toInt());
+      });
+
+      socket?.on('gift-received', (data) {
+        if (data is Map) onGiftReceived?.call(Map<String, dynamic>.from(data));
       });
 
       socket?.on('terms-required', (_) {

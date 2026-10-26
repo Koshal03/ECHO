@@ -193,8 +193,35 @@ async function claimAdTx(txId, userId) {
   throw new Error(error.message);
 }
 
+
+// ---------- Virtual gifts + wallet history ----------
+async function loadGiftCatalog() {
+  if (!enabled) return null;
+  const rows = ok(await supabase.from('gift_catalog').select('*').eq('enabled', true).order('sort_order'));
+  return rows.map((g) => ({ id: g.gift_id, name: g.name, price: g.coin_price, animation: g.animation_key, popular: !!g.popular }));
+}
+
+// Atomic: price check + balance check + debit + ledger + gift event. Idempotent per requestId.
+// Throws Error('insufficient_coins' | 'gift_unavailable' | 'price_mismatch') on business failures.
+async function sendGift({ senderId, recipientId, callId, giftId, price, requestId }) {
+  if (!enabled) return null; // caller falls back to memory
+  const out = ok(await supabase.rpc('send_gift', {
+    p_sender: senderId, p_recipient: recipientId, p_call_id: callId, p_gift_id: giftId, p_price: price, p_request_id: requestId,
+  }));
+  return { duplicate: !!out.duplicate, giftEventId: out.gift_event_id, newBalance: out.new_balance, price: out.coin_price };
+}
+
+async function getLedger(userId, limit = 30) {
+  if (!enabled) return null;
+  const rows = ok(await supabase.from('wallet_ledger')
+    .select('transaction_id, coin_delta, source, product_id, created_at')
+    .eq('user_id', userId).order('created_at', { ascending: false }).limit(limit));
+  return rows.map((r) => ({ id: r.transaction_id, delta: r.coin_delta, source: r.source, productId: r.product_id, createdAt: ms(r.created_at) }));
+}
+
 module.exports = {
   enabled, supabase, loadAll, insertUser, addCoins, insertGuest, insertBlock, insertReport,
   claimPurchase, getPurchase, markPurchaseCredited, deletePurchase, adTxExists, claimAdTx,
   deleteUser, setUserStatus, updateReportStatus, setTermsAccepted,
+  loadGiftCatalog, sendGift, getLedger,
 };

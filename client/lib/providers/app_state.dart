@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show Random;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:in_app_purchase/in_app_purchase.dart';
@@ -9,6 +10,7 @@ import '../models/call_session.dart';
 import '../models/chat_message.dart';
 import '../constants/terms_text.dart';
 import '../models/coin_pack.dart';
+import '../models/gift.dart';
 import '../services/socket_service.dart';
 import '../services/webrtc_service.dart';
 import '../services/guest_service.dart';
@@ -145,6 +147,7 @@ class AppState extends ChangeNotifier {
         notifyListeners();
       }
     };
+    socketService.onGiftReceived = _handleGiftReceived;
     socketService.onAccountNotice = _handleAccountNotice;
     socketService.onTermsRequired = () {
       // The server says the Terms were not accepted (or changed): show the Terms page again.
@@ -789,6 +792,157 @@ class AppState extends ChangeNotifier {
   }
 
   // ---------------- Account ----------------
+  // ---------------- Virtual gifts + wallet history ----------------
+
+  List<Gift> gifts = List<Gift>.of(Gift.defaults);
+  List<WalletTx> walletHistory = [];
+  bool walletHistoryLoading = false;
+  bool walletHistoryFailed = false;
+
+  final StreamController<GiftEvent> _giftController = StreamController<GiftEvent>.broadcast();
+
+  /// Gifts to animate on the call screens (sent by us, or received from the stranger).
+  Stream<GiftEvent> get giftEvents => _giftController.stream;
+
+  // A gift request that timed out keeps its id, so tapping Send again is a retry of the SAME
+  // gift: the server answers "duplicate" instead of charging twice.
+  String? _pendingGiftId;
+  String? _pendingGiftRequestId;
+  bool giftSending = false;
+
+  String _newRequestId() {
+    final r = Random.secure();
+    final tail = List.generate(8, (_) => r.nextInt(36).toRadixString(36)).join();
+    return 'g${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}$tail';
+  }
+
+  Gift? giftById(String id) {
+    for (final g in gifts) {
+      if (g.id == id) return g;
+    }
+    for (final g in Gift.defaults) {
+      if (g.id == id) return g;
+    }
+    return null;
+  }
+
+  Future<void> loadGifts() async {
+    if (authToken == null) return;
+    try {
+      final res = await http
+          .get(Uri.parse('$backendUrl/api/gifts'), headers: _authHeaders)
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final list = jsonDecode(res.body)['gifts'];
+        if (list is List && list.isNotEmpty) {
+          gifts = list.map((e) => Gift.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+          notifyListeners();
+        }
+      }
+    } catch (_) {
+      // offline: keep the built-in list (the server still decides the real price)
+    }
+  }
+
+  Future<void> loadWalletHistory() async {
+    final user = currentUser;
+    if (user == null || user.isGuest || authToken == null) return;
+    walletHistoryLoading = true;
+    walletHistoryFailed = false;
+    notifyListeners();
+    try {
+      final res = await http
+          .get(Uri.parse('$backendUrl/api/wallet/transactions?limit=40'), headers: _authHeaders)
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final list = (body['transactions'] as List? ?? []);
+        walletHistory = list.map((e) => WalletTx.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+        if (body['balance'] is num) user.coins = (body['balance'] as num).toInt();
+      } else {
+        walletHistoryFailed = true;
+      }
+    } catch (_) {
+      walletHistoryFailed = true;
+    }
+    walletHistoryLoading = false;
+    notifyListeners();
+  }
+
+  /// Sends [gift] to the stranger in the current call. The SERVER checks the call, the
+  /// price and the balance, and deducts the coins; we only update the UI from its answer.
+  Future<GiftSendResult> sendGift(Gift gift) async {
+    final user = currentUser;
+    final call = activeCall;
+    if (user == null || authToken == null) return const GiftSendResult.failure('Please sign in again.');
+    if (user.isGuest) return const GiftSendResult.failure('Sign up with a username to send gifts.');
+    if (call == null) return const GiftSendResult.failure('Gifts can be sent during a call.');
+    if (giftSending) return const GiftSendResult.failure('Sending your gift...');
+
+    if (_pendingGiftId != gift.id || _pendingGiftRequestId == null) {
+      _pendingGiftId = gift.id;
+      _pendingGiftRequestId = _newRequestId();
+    }
+    giftSending = true;
+    notifyListeners();
+    try {
+      final res = await http
+          .post(
+            Uri.parse('$backendUrl/api/gifts/send'),
+            headers: _authHeaders,
+            body: jsonEncode({'roomId': call.roomId, 'giftId': gift.id, 'requestId': _pendingGiftRequestId}),
+          )
+          .timeout(const Duration(seconds: 12));
+      Map<String, dynamic> body = {};
+      try {
+        body = jsonDecode(res.body) as Map<String, dynamic>;
+      } catch (_) {}
+
+      if (res.statusCode == 200) {
+        _pendingGiftId = null;
+        _pendingGiftRequestId = null;
+        if (body['newBalance'] is num) user.coins = (body['newBalance'] as num).toInt();
+        if (body['duplicate'] != true) {
+          _giftController.add(GiftEvent(gift: gift, received: false));
+        }
+        return const GiftSendResult.success();
+      }
+
+      // The server gave a definite answer, so the next tap is a brand-new gift.
+      _pendingGiftId = null;
+      _pendingGiftRequestId = null;
+      if (body['newBalance'] is num) user.coins = (body['newBalance'] as num).toInt();
+      if (res.statusCode == 402) {
+        if (body['balance'] is num) user.coins = (body['balance'] as num).toInt();
+        return GiftSendResult.failure(
+          'Not enough coins. You need ${gift.price} coins.',
+          notEnoughCoins: true,
+          needed: gift.price,
+        );
+      }
+      if (res.statusCode == 401 || res.statusCode == 403) {
+        return GiftSendResult.failure((body['error'] ?? 'Please sign in again.').toString());
+      }
+      return GiftSendResult.failure((body['error'] ?? 'Could not send the gift. No coins were charged.').toString());
+    } catch (_) {
+      // Timeout / no network: we do NOT know if the server accepted it. Keep the request id so a
+      // retry cannot charge twice, and refresh the balance from the server.
+      refreshProfile();
+      return const GiftSendResult.failure('No connection. Your coins are safe. Tap Send to try again.');
+    } finally {
+      giftSending = false;
+      notifyListeners();
+    }
+  }
+
+  void _handleGiftReceived(Map<String, dynamic> data) {
+    if (activeCall == null) return;
+    final id = (data['giftId'] ?? '').toString();
+    final gift = giftById(id) ??
+        Gift(id: id, name: (data['name'] ?? 'Gift').toString(), price: 0, animation: (data['animation'] ?? 'pop').toString());
+    _giftController.add(GiftEvent(gift: gift, received: true, fromName: (data['fromName'] ?? '').toString()));
+  }
+
   /// Fresh coins / profile from the server (an admin may have changed them).
   Future<void> refreshProfile() async {
     final user = currentUser;
