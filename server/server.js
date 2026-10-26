@@ -573,6 +573,7 @@ const memGiftRequests = new Map();     // memory-only mode: "user:requestId" -> 
 const SOURCE_TITLES = {
   welcome_bonus: 'Welcome bonus', google_play: 'Coin pack purchase', rewarded_ad: 'Rewarded ad',
   admin_gift: 'Gift from Echo', admin_adjust: 'Balance adjustment', gift_refund: 'Gift refund',
+  filter_unlock: 'Unlocked advanced filters',
 };
 const ledgerTitle = (r) => {
   if (r.source === 'gift_sent') {
@@ -685,6 +686,156 @@ app.post('/api/gifts/send', requireAuth(), requireTerms, giftLimiter, async (req
     giftInFlight.delete(user.userId);
   }
 });
+
+// ---------------- Matching preferences + Premium Filters ----------------
+// Profile fields (languages / interests / region) are free: they describe the person.
+// USING them as a filter is the premium part: one-time unlock, permanent, server-enforced.
+// Language + region are hard filters. Interests only rank candidates (a match is never guaranteed).
+const FILTER_UNLOCK_PRICE = 20;
+const LANGUAGE_OPTIONS = [
+  { id: 'en', name: 'English' }, { id: 'hi', name: 'Hindi' }, { id: 'es', name: 'Spanish' }, { id: 'fr', name: 'French' },
+  { id: 'ar', name: 'Arabic' }, { id: 'pt', name: 'Portuguese' }, { id: 'bn', name: 'Bengali' }, { id: 'ta', name: 'Tamil' },
+  { id: 'te', name: 'Telugu' }, { id: 'mr', name: 'Marathi' }, { id: 'ur', name: 'Urdu' }, { id: 'pa', name: 'Punjabi' },
+  { id: 'gu', name: 'Gujarati' }, { id: 'kn', name: 'Kannada' }, { id: 'ml', name: 'Malayalam' },
+];
+const INTEREST_OPTIONS = [
+  { id: 'music', name: 'Music' }, { id: 'sports', name: 'Sports' }, { id: 'travel', name: 'Travel' }, { id: 'gaming', name: 'Gaming' },
+  { id: 'movies', name: 'Movies' }, { id: 'technology', name: 'Technology' }, { id: 'books', name: 'Books' }, { id: 'food', name: 'Food' },
+  { id: 'fitness', name: 'Fitness' }, { id: 'art', name: 'Art' },
+];
+const REGION_OPTIONS = [
+  { id: 'any', name: 'Any region' }, { id: 'IN', name: 'India' }, { id: 'US', name: 'United States' }, { id: 'GB', name: 'United Kingdom' },
+  { id: 'CA', name: 'Canada' }, { id: 'AU', name: 'Australia' }, { id: 'AE', name: 'UAE' }, { id: 'PK', name: 'Pakistan' },
+  { id: 'BD', name: 'Bangladesh' }, { id: 'NP', name: 'Nepal' }, { id: 'LK', name: 'Sri Lanka' }, { id: 'ID', name: 'Indonesia' },
+  { id: 'PH', name: 'Philippines' }, { id: 'DE', name: 'Germany' }, { id: 'FR', name: 'France' }, { id: 'ES', name: 'Spain' },
+  { id: 'BR', name: 'Brazil' }, { id: 'MX', name: 'Mexico' },
+];
+const LANG_IDS = new Set(LANGUAGE_OPTIONS.map((o) => o.id));
+const INTEREST_IDS = new Set(INTEREST_OPTIONS.map((o) => o.id));
+const REGION_IDS = new Set(REGION_OPTIONS.map((o) => o.id));
+const MAX_LANGUAGES = 5;
+const MAX_INTERESTS = 8;
+
+const prefs = new Map();              // userId -> { languages, interests, region, filtersOn, unlocked }
+const unlockInFlight = new Set();     // userId: one unlock request at a time per person
+const prefsLimiter = rateLimit({ windowMs: 60 * 1000, max: 40, name: 'prefs' });
+const emptyPrefs = () => ({ languages: [], interests: [], region: 'any', filtersOn: true, unlocked: false });
+const prefsOf = (userId) => prefs.get(userId) || emptyPrefs();
+
+// Strict validation: only allowed ids, no duplicates, size limits. Returns { value } or { error }.
+function validatePrefs(body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const list = (v, allowed, max, label) => {
+    if (v === undefined) return { value: [] };
+    if (!Array.isArray(v) || v.length > max) return { error: `Choose up to ${max} ${label}.` };
+    const out = [];
+    for (const x of v) {
+      if (typeof x !== 'string' || !allowed.has(x)) return { error: `Unknown ${label.replace(/s$/, '')}.` };
+      if (!out.includes(x)) out.push(x);
+    }
+    return { value: out };
+  };
+  const languages = list(b.languages, LANG_IDS, MAX_LANGUAGES, 'languages');
+  if (languages.error) return { error: languages.error };
+  const interests = list(b.interests, INTEREST_IDS, MAX_INTERESTS, 'interests');
+  if (interests.error) return { error: interests.error };
+  const region = b.region === undefined ? 'any' : b.region;
+  if (typeof region !== 'string' || !REGION_IDS.has(region)) return { error: 'Unknown region.' };
+  if (b.filtersOn !== undefined && typeof b.filtersOn !== 'boolean') return { error: 'Invalid filter switch.' };
+  return { value: { languages: languages.value, interests: interests.value, region, filtersOn: b.filtersOn !== false } };
+}
+
+const prefsPayload = (userId, isGuest) => {
+  const p = prefsOf(userId);
+  return {
+    preferences: { languages: p.languages, interests: p.interests, region: p.region, filtersOn: p.filtersOn },
+    filtersUnlocked: !isGuest && p.unlocked,
+    unlockCost: FILTER_UNLOCK_PRICE,
+    options: { languages: LANGUAGE_OPTIONS, interests: INTEREST_OPTIONS, regions: REGION_OPTIONS },
+  };
+};
+
+app.get('/api/matching/preferences', requireAuth({ allowGuest: true }), (req, res) => {
+  res.json(prefsPayload(req.auth.userId, req.auth.isGuest));
+});
+
+app.post('/api/matching/preferences', requireAuth(), requireTerms, prefsLimiter, async (req, res) => {
+  const v = validatePrefs(req.body);
+  if (v.error) return res.status(400).json({ error: v.error });
+  const userId = req.auth.userId;
+  const next = { ...prefsOf(userId), ...v.value };
+  try {
+    await db.savePreferences(userId, next);
+  } catch (e) {
+    console.error('[PREFS] save failed:', e.message);
+    return dbBusy(res);
+  }
+  prefs.set(userId, next);
+  res.json({ success: true, ...prefsPayload(userId, false) });
+});
+
+app.post('/api/matching/unlock-filter', requireAuth(), requireTerms, prefsLimiter, async (req, res) => {
+  const user = req.auth.record;
+  const cur = prefsOf(user.userId);
+  if (cur.unlocked) return res.json({ success: true, already: true, newBalance: user.coins });
+  if (unlockInFlight.has(user.userId)) return res.status(429).json({ error: 'Please wait a moment.' });
+
+  unlockInFlight.add(user.userId);
+  try {
+    let result;
+    try {
+      result = await db.unlockFilters(user.userId, FILTER_UNLOCK_PRICE);
+      if (!result) { // memory-only mode
+        if (user.coins < FILTER_UNLOCK_PRICE) throw new Error('insufficient_coins');
+        user.coins -= FILTER_UNLOCK_PRICE;
+        result = { already: false, newBalance: user.coins };
+      }
+    } catch (e) {
+      if (String(e.message).includes('insufficient_coins')) {
+        return res.status(402).json({ error: 'Not enough coins.', balance: user.coins, needed: FILTER_UNLOCK_PRICE - user.coins });
+      }
+      console.error('[FILTERS] unlock failed:', e.message);
+      return dbBusy(res);
+    }
+    user.coins = result.newBalance;
+    prefs.set(user.userId, { ...cur, unlocked: true });
+    if (!result.already) {
+      pushLedger({ transactionId: 'tx_' + uuidv4(), userId: user.userId, entryType: 'debit', coinDelta: -FILTER_UNLOCK_PRICE,
+        source: 'filter_unlock', productId: 'advanced_filters', reference: null, timestamp: Date.now() });
+    }
+    res.json({ success: true, already: result.already, newBalance: user.coins });
+  } finally {
+    unlockInFlight.delete(user.userId);
+  }
+});
+
+// A hint only (never a promise): how many people are searching in this mode right now.
+app.get('/api/matching/availability', requireAuth({ allowGuest: true }), (req, res) => {
+  const mode = CALL_MODES.has(req.query.mode) ? req.query.mode : 'audio';
+  const searching = matchQueue.filter((q) => q.connected && q.queueMode === mode && q.userId !== req.auth.userId).length;
+  res.json({ mode, searching });
+});
+
+// Does `owner`'s active hard filter accept `other`'s profile? (language + region)
+function acceptsProfile(ownerId, otherId, ownerBroadened) {
+  const f = prefs.get(ownerId);
+  if (!f || !f.unlocked || !f.filtersOn || ownerBroadened) return true;
+  const o = prefsOf(otherId);
+  if (f.languages.length && !o.languages.some((l) => f.languages.includes(l))) return false;
+  if (f.region !== 'any' && o.region !== f.region) return false;
+  return true;
+}
+const hasActiveFilters = (userId) => {
+  const f = prefs.get(userId);
+  return !!(f && f.unlocked && f.filtersOn && (f.languages.length || f.region !== 'any' || f.interests.length));
+};
+// Interest overlap only ranks candidates; it never excludes anyone.
+const interestScore = (aId, bId) => {
+  const a = prefsOf(aId);
+  if (!a.unlocked || !a.filtersOn) return 0;
+  const b = prefsOf(bId);
+  return a.interests.filter((i) => b.interests.includes(i)).length;
+};
 
 // ---------------- Rewarded ads: AdMob Server-Side Verification ----------------
 const REWARD_COINS = 10; // fixed server-side; never trust the client
@@ -870,6 +1021,7 @@ function removeUserFromMemory(user) {
   if (user.email && emailToUser.get(user.email) === id) emailToUser.delete(user.email);
   if (user.phone && phoneToUser.get(user.phone) === id) phoneToUser.delete(user.phone);
   partnerHistory.delete(id);
+  prefs.delete(id);
   blocksByUser.delete(id);
   for (const key of Array.from(blockedPairs)) {
     if (key.split(':::').includes(id)) blockedPairs.delete(key);
@@ -1124,21 +1276,29 @@ io.on('connection', (socket) => {
     }
   });
 
-  on('join-queue', ({ mode }) => {
+  on('join-queue', ({ mode, broaden }) => {
     if (mustAcceptTerms(socket.userId)) return socket.emit('terms-required', { version: TERMS_VERSION });
     const callMode = CALL_MODES.has(mode) ? mode : 'audio'; // old app versions send no mode
     if (guestExpired(socket)) return socket.emit('guest-expired', { message: 'Guest access limit reached.' });
     if (socket.currentRoomId) endRoom(socket.currentRoomId, socket.userId, 'Stranger left the call');
     matchQueue = matchQueue.filter((s) => s.id !== socket.id && s.userId !== socket.userId && s.connected);
     socket.queueMode = callMode;
+    socket.broaden = broaden === true; // "broaden preferences": ignore MY filters for this search
+    const filtered = !socket.broaden && hasActiveFilters(socket.userId);
 
-    const idx = matchQueue.findIndex((c) =>
-      c.queueMode === callMode && c.userId !== socket.userId && !isBlocked(socket.userId, c.userId) &&
-      !recentlyMatched(socket.userId, c.userId) && !guestExpired(c));
+    // Everyone eligible by the basic rules AND by both people's filters; best interest overlap first, then FIFO.
+    let idx = -1; let best = -1;
+    matchQueue.forEach((c, i) => {
+      if (c.queueMode !== callMode || c.userId === socket.userId || isBlocked(socket.userId, c.userId) ||
+          recentlyMatched(socket.userId, c.userId) || guestExpired(c)) return;
+      if (!acceptsProfile(socket.userId, c.userId, socket.broaden) || !acceptsProfile(c.userId, socket.userId, c.broaden)) return;
+      const score = filtered ? interestScore(socket.userId, c.userId) : 0;
+      if (score > best) { best = score; idx = i; }
+    });
 
     if (idx === -1) {
       matchQueue.push(socket);
-      return socket.emit('queue-status', { status: 'searching', queuePosition: matchQueue.length });
+      return socket.emit('queue-status', { status: 'searching', queuePosition: matchQueue.length, filtered });
     }
     const [partner] = matchQueue.splice(idx, 1);
     const roomId = 'room_' + uuidv4();
@@ -1227,6 +1387,11 @@ async function loadFromDb() {
   }
   reportQueue.push(...d.reports);
   walletLedgers.push(...d.ledger);
+  try {
+    for (const p of await db.loadPreferences()) prefs.set(p.userId, { languages: p.languages, interests: p.interests, region: p.region, filtersOn: p.filtersOn, unlocked: p.unlocked });
+  } catch (e) {
+    console.warn('[FILTERS] user_preferences not readable (run supabase_migration_matching_filters.sql). Filters are off until then:', e.message);
+  }
   try {
     const cat = await db.loadGiftCatalog();
     if (cat && cat.length) giftCatalog = cat;

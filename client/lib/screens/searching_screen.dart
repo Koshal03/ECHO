@@ -135,6 +135,19 @@ class _SearchingScreenState extends State<SearchingScreen> with SingleTickerProv
                 ),
                 const SizedBox(height: 22),
                 _buildDots(),
+                if (appState.searchFiltered) ...[
+                  const SizedBox(height: 18),
+                  Text(
+                    'Using your filters. Availability varies,\nso a match is not guaranteed.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: AppColors.textSecondary.withOpacity(0.9), fontSize: 12.5, height: 1.4),
+                  ),
+                  const SizedBox(height: 6),
+                  TextButton(
+                    onPressed: appState.broadenSearch,
+                    child: const Text('Search without filters', style: TextStyle(color: AppColors.accent, fontWeight: FontWeight.w700)),
+                  ),
+                ],
 
                 const Spacer(),
 

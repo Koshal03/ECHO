@@ -11,6 +11,7 @@ import '../models/chat_message.dart';
 import '../constants/terms_text.dart';
 import '../models/coin_pack.dart';
 import '../models/gift.dart';
+import '../models/match_prefs.dart';
 import '../services/socket_service.dart';
 import '../services/webrtc_service.dart';
 import '../services/guest_service.dart';
@@ -428,7 +429,7 @@ class AppState extends ChangeNotifier {
   }
 
   // 4. Start Matchmaking (Random Call)
-  void startRandomCall({String mode = 'audio'}) {
+  void startRandomCall({String mode = 'audio', bool broaden = false}) {
     if (currentUser == null) return;
     if (currentUser!.isGuest && currentUser!.isGuestExpired) {
       _handleGuestExpired();
@@ -438,10 +439,12 @@ class AppState extends ChangeNotifier {
     searchMode = mode;
     lastMode = mode;
     isSearching = true;
+    searchFiltered = false;
     notifyListeners();
 
     socketService.joinQueue(
       mode: mode,
+      broaden: broaden,
       userId: currentUser!.userId,
       displayName: currentUser!.displayName,
       avatarUrl: currentUser!.avatarUrl,
@@ -460,11 +463,14 @@ class AppState extends ChangeNotifier {
     currentUser = null;
     show5MinWarning = false;
     broadcastMessage = null;
+    matchPrefs = const MatchPrefs();
+    filtersUnlocked = false;
     notifyListeners();
   }
 
   void cancelSearch() {
     isSearching = false;
+    searchFiltered = false;
     socketService.leaveQueue();
     notifyListeners();
   }
@@ -663,6 +669,7 @@ class AppState extends ChangeNotifier {
 
   void _handleQueueStatus(Map<String, dynamic> data) {
     queuePosition = data['queuePosition'] ?? 1;
+    searchFiltered = data['filtered'] == true;
     notifyListeners();
   }
 
@@ -867,6 +874,127 @@ class AppState extends ChangeNotifier {
     }
     walletHistoryLoading = false;
     notifyListeners();
+  }
+
+  // ---------------- Matching preferences + Premium Filters ----------------
+  // Saving your profile (languages / interests / region) is free. USING it as a filter is the
+  // premium part: a one-time unlock. The server enforces everything; the app only shows it.
+  MatchPrefs matchPrefs = const MatchPrefs();
+  List<MatchOption> languageOptions = [];
+  List<MatchOption> interestOptions = [];
+  List<MatchOption> regionOptions = [];
+  bool filtersUnlocked = false;
+  int filterUnlockCost = 20;
+  bool matchPrefsLoading = false;
+  bool matchPrefsFailed = false;
+  bool matchPrefsSaving = false;
+  bool filterUnlocking = false;
+  bool searchFiltered = false; // the current search is using my filters
+
+  List<MatchOption> _options(dynamic v) => (v is List)
+      ? v.map((e) => MatchOption.fromJson(Map<String, dynamic>.from(e as Map))).toList()
+      : <MatchOption>[];
+
+  Future<void> loadMatchPrefs() async {
+    if (authToken == null) return;
+    matchPrefsLoading = true;
+    matchPrefsFailed = false;
+    notifyListeners();
+    try {
+      final res = await http
+          .get(Uri.parse('$backendUrl/api/matching/preferences'), headers: _authHeaders)
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        matchPrefs = MatchPrefs.fromJson(Map<String, dynamic>.from(body['preferences'] as Map));
+        filtersUnlocked = body['filtersUnlocked'] == true;
+        if (body['unlockCost'] is num) filterUnlockCost = (body['unlockCost'] as num).toInt();
+        final opts = body['options'] as Map? ?? {};
+        languageOptions = _options(opts['languages']);
+        interestOptions = _options(opts['interests']);
+        regionOptions = _options(opts['regions']);
+      } else {
+        matchPrefsFailed = true;
+      }
+    } catch (_) {
+      matchPrefsFailed = true;
+    }
+    matchPrefsLoading = false;
+    notifyListeners();
+  }
+
+  /// Saves the preferences. Returns an error message, or null when it worked.
+  Future<String?> saveMatchPrefs(MatchPrefs next) async {
+    final user = currentUser;
+    if (user == null || authToken == null) return 'Please sign in again.';
+    if (user.isGuest) return 'Sign up with a username to save preferences.';
+    if (matchPrefsSaving) return 'Saving...';
+    matchPrefsSaving = true;
+    notifyListeners();
+    try {
+      final res = await http
+          .post(Uri.parse('$backendUrl/api/matching/preferences'), headers: _authHeaders, body: jsonEncode(next.toJson()))
+          .timeout(const Duration(seconds: 12));
+      Map<String, dynamic> body = {};
+      try {
+        body = jsonDecode(res.body) as Map<String, dynamic>;
+      } catch (_) {}
+      if (res.statusCode == 200) {
+        matchPrefs = MatchPrefs.fromJson(Map<String, dynamic>.from(body['preferences'] as Map));
+        filtersUnlocked = body['filtersUnlocked'] == true;
+        return null;
+      }
+      return (body['error'] ?? 'Could not save your preferences.').toString();
+    } catch (_) {
+      return 'No connection. Please try again.';
+    } finally {
+      matchPrefsSaving = false;
+      notifyListeners();
+    }
+  }
+
+  /// Unlocks Premium Filters (one-time, [filterUnlockCost] coins). Returns an error message, or null.
+  Future<String?> unlockFilters() async {
+    final user = currentUser;
+    if (user == null || authToken == null) return 'Please sign in again.';
+    if (user.isGuest) return 'Sign up with a username to unlock filters.';
+    if (filterUnlocking) return 'Unlocking...';
+    filterUnlocking = true;
+    notifyListeners();
+    try {
+      final res = await http
+          .post(Uri.parse('$backendUrl/api/matching/unlock-filter'), headers: _authHeaders, body: jsonEncode({}))
+          .timeout(const Duration(seconds: 12));
+      Map<String, dynamic> body = {};
+      try {
+        body = jsonDecode(res.body) as Map<String, dynamic>;
+      } catch (_) {}
+      if (res.statusCode == 200) {
+        if (body['newBalance'] is num) user.coins = (body['newBalance'] as num).toInt();
+        filtersUnlocked = true;
+        return null;
+      }
+      if (res.statusCode == 402) {
+        if (body['balance'] is num) user.coins = (body['balance'] as num).toInt();
+        final needed = body['needed'] is num ? (body['needed'] as num).toInt() : filterUnlockCost;
+        return 'Not enough coins. You need $needed more.';
+      }
+      return (body['error'] ?? 'Could not unlock filters. No coins were charged.').toString();
+    } catch (_) {
+      // Timeout / no network: the server may have accepted it. Re-read both balance and unlock state.
+      refreshProfile();
+      loadMatchPrefs();
+      return 'No connection. Your coins are safe. Please check and try again.';
+    } finally {
+      filterUnlocking = false;
+      notifyListeners();
+    }
+  }
+
+  /// "Search without filters": same mode, but my filters are ignored for this search.
+  void broadenSearch() {
+    if (!isSearching) return;
+    startRandomCall(mode: searchMode, broaden: true);
   }
 
   /// Sends [gift] to the stranger in the current call. The SERVER checks the call, the

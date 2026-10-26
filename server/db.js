@@ -219,9 +219,35 @@ async function getLedger(userId, limit = 30) {
   return rows.map((r) => ({ id: r.transaction_id, delta: r.coin_delta, source: r.source, productId: r.product_id, createdAt: ms(r.created_at) }));
 }
 
+// ---------- Matching preferences + premium filter unlock ----------
+async function loadPreferences() {
+  if (!enabled) return [];
+  const rows = await fetchAll('user_preferences');
+  return rows.map((r) => ({
+    userId: r.user_id, languages: r.languages || [], interests: r.interests || [], region: r.region || 'any',
+    filtersOn: r.filters_on !== false, unlocked: !!r.filters_unlocked,
+  }));
+}
+
+async function savePreferences(userId, p) {
+  if (!enabled) return;
+  ok(await supabase.from('user_preferences').upsert({
+    user_id: userId, languages: p.languages, interests: p.interests, region: p.region,
+    filters_on: p.filtersOn, updated_at: new Date().toISOString(),
+  }));
+}
+
+// Atomic. Throws Error('insufficient_coins') when the balance is too low.
+async function unlockFilters(userId, price) {
+  if (!enabled) return null; // caller falls back to memory
+  const out = ok(await supabase.rpc('unlock_filters', { p_user: userId, p_price: price }));
+  return { already: !!out.already, newBalance: out.new_balance };
+}
+
 module.exports = {
   enabled, supabase, loadAll, insertUser, addCoins, insertGuest, insertBlock, insertReport,
   claimPurchase, getPurchase, markPurchaseCredited, deletePurchase, adTxExists, claimAdTx,
   deleteUser, setUserStatus, updateReportStatus, setTermsAccepted,
   loadGiftCatalog, sendGift, getLedger,
+  loadPreferences, savePreferences, unlockFilters,
 };
