@@ -67,6 +67,7 @@ class GradientButton extends StatelessWidget {
   final Gradient gradient;
   final double height;
   final bool busy;
+  final String? subLabel;
 
   const GradientButton({
     super.key,
@@ -76,6 +77,7 @@ class GradientButton extends StatelessWidget {
     this.gradient = AppColors.brandGradient,
     this.height = 56,
     this.busy = false,
+    this.subLabel,
   });
 
   @override
@@ -102,7 +104,14 @@ class GradientButton extends StatelessWidget {
                   : Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(label, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(label, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
+                            if (subLabel != null)
+                              Text(subLabel!, style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 11)),
+                          ],
+                        ),
                         if (trailingIcon != null) ...[
                           const SizedBox(width: 8),
                           Icon(trailingIcon, color: Colors.white, size: 20),

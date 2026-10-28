@@ -159,17 +159,45 @@ class ProfileScreen extends StatelessWidget {
 
           // Menu
           _menuTile(
-            icon: Icons.monetization_on_rounded,
+            icon: Icons.edit_rounded,
+            colors: const [Color(0xFF4C7DFF), Color(0xFF2F5BFF)],
+            title: 'Edit Profile',
+            soon: true,
+            onTap: () => showComingSoon(context, 'Edit Profile'),
+          ),
+          _menuTile(
+            icon: Icons.workspace_premium_rounded,
             colors: const [Color(0xFFFFC928), Color(0xFFFF9F1C)],
-            title: 'My Coins',
+            title: 'Premium Features',
+            soon: true,
+            onTap: () => showComingSoon(context, 'Premium Features'),
+          ),
+          _menuTile(
+            icon: Icons.account_balance_wallet_rounded,
+            colors: const [Color(0xFF16C7A8), Color(0xFF0E8A8F)],
+            title: 'Wallet & Transactions',
             trailing: Text('${user?.coins ?? 0}', style: const TextStyle(color: AppColors.coinGold, fontWeight: FontWeight.w800, fontSize: 14)),
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CoinStoreScreen())),
           ),
           _menuTile(
+            icon: Icons.block_rounded,
+            colors: const [Color(0xFFFF3B6B), Color(0xFFD02050)],
+            title: 'Blocked Users',
+            soon: true,
+            onTap: () => showComingSoon(context, 'Blocked Users'),
+          ),
+          _menuTile(
             icon: Icons.settings_rounded,
-            colors: const [Color(0xFF4C7DFF), Color(0xFF7A5CFF)],
+            colors: const [Color(0xFF8A5CFF), Color(0xFF5B3BD0)],
             title: 'Settings',
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
+          ),
+          _menuTile(
+            icon: Icons.help_outline_rounded,
+            colors: const [Color(0xFF3A6BFF), Color(0xFF1B3FD0)],
+            title: 'Help & Support',
+            soon: true,
+            onTap: () => showComingSoon(context, 'Help & Support'),
           ),
         ],
       ),
@@ -202,6 +230,7 @@ class ProfileScreen extends StatelessWidget {
     required String title,
     required VoidCallback onTap,
     Widget? trailing,
+    bool soon = false,
   }) {
     return GlassCard(
       margin: const EdgeInsets.only(bottom: 10),
@@ -213,6 +242,7 @@ class ProfileScreen extends StatelessWidget {
           IconTile(icon: icon, colors: colors, size: 36),
           const SizedBox(width: 14),
           Expanded(child: Text(title, style: const TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.w600))),
+          if (soon) ...[const SoonPill(), const SizedBox(width: 8)],
           if (trailing != null) ...[trailing, const SizedBox(width: 8)],
           const Icon(Icons.chevron_right, color: AppColors.textSecondary, size: 22),
         ],

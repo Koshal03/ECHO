@@ -7,6 +7,7 @@ import 'home_dashboard.dart';
 import 'username_screen.dart';
 import 'email_login_screen.dart';
 import '../widgets/echo_widgets.dart';
+import '../widgets/echo_brand.dart';
 import '../utils/legal_links.dart';
 import '../constants/terms_text.dart';
 
@@ -111,6 +112,7 @@ class _EntryScreenState extends State<EntryScreen> {
   Widget _altButton({required IconData icon, required String label, required VoidCallback onTap, bool busy = false}) {
     return SizedBox(
       height: 54,
+      width: double.infinity,
       child: OutlinedButton.icon(
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.textPrimary,
@@ -132,125 +134,110 @@ class _EntryScreenState extends State<EntryScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: GradientBackground(
-        child: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) => SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: IntrinsicHeight(
-                  child: Column(
-                    children: [
-                      const SizedBox(height: 24),
-                      const Spacer(),
-                      const EchoLogo(size: 260),
-                      const SizedBox(height: 20),
-                      const Text(
-                        'Real People. Real Conversations.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: AppColors.textPrimary, fontSize: 17, fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Live voice calls. Anytime. Anywhere.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
-                      ),
-                      const Spacer(),
-
-                      // Guest mode info (60 minutes, server enforced)
-                      GlassCard(
-                        padding: const EdgeInsets.all(12),
-                        radius: 14,
-                        child: const Row(
-                          children: [
-                            Icon(Icons.access_time_filled, color: AppColors.primaryLight, size: 20),
-                            SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                'Guest Mode gives you 60 minutes of instant calling without sign-up.',
-                                style: TextStyle(color: AppColors.textSecondary, fontSize: 12.5),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Primary: continue as guest
-                      GradientButton(
-                        label: 'Get Started',
-                        trailingIcon: Icons.arrow_forward,
-                        onPressed: () => _handleGuestAccess(context),
-                      ),
-                      const SizedBox(height: 12),
-
-                      // Google / Email sign-in (recoverable account on any device)
-                      Row(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            const Align(alignment: Alignment.bottomCenter, child: EchoWaves(height: 150)),
+            SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) => SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                    child: IntrinsicHeight(
+                      child: Column(
                         children: [
-                          Expanded(
-                            child: _altButton(
-                              icon: Icons.account_circle_outlined,
-                              label: 'Google',
-                              busy: _googleBusy,
-                              onTap: () => _handleGoogleSignIn(context),
-                            ),
+                          const SizedBox(height: 28),
+                          const EchoWordmark(markSize: 84, titleSize: 36),
+                          const SizedBox(height: 28),
+                          const Text(
+                            'Welcome!',
+                            style: TextStyle(color: AppColors.textPrimary, fontSize: 28, fontWeight: FontWeight.w800),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: _altButton(
-                              icon: Icons.mail_outline_rounded,
-                              label: 'Email',
-                              onTap: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) => const EmailLoginScreen()),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Connect with people around the world',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
+                          ),
+                          const Spacer(),
+
+                          // Guest mode: 60 minutes, enforced by the server
+                          GradientButton(
+                            label: 'Continue as Guest',
+                            subLabel: '60 min free',
+                            height: 62,
+                            onPressed: () => _handleGuestAccess(context),
+                          ),
+                          const SizedBox(height: 14),
+                          Row(
+                            children: [
+                              Expanded(child: Divider(color: AppColors.cardBorder.withOpacity(0.6))),
+                              const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 12),
+                                child: Text('or', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
                               ),
+                              Expanded(child: Divider(color: AppColors.cardBorder.withOpacity(0.6))),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+
+                          // Google / Email sign-in (recoverable account on any device)
+                          _altButton(
+                            icon: Icons.g_mobiledata_rounded,
+                            label: 'Continue with Google',
+                            busy: _googleBusy,
+                            onTap: () => _handleGoogleSignIn(context),
+                          ),
+                          const SizedBox(height: 10),
+                          _altButton(
+                            icon: Icons.mail_outline_rounded,
+                            label: 'Continue with Email',
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const EmailLoginScreen()),
                             ),
                           ),
+                          const SizedBox(height: 10),
+
+                          // Username-only account (no recovery if the phone is lost)
+                          _altButton(
+                            icon: Icons.person_add_alt_1_rounded,
+                            label: 'Create Account (Username)',
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => const UsernameScreen()),
+                            ),
+                          ),
+
+                          const SizedBox(height: 16),
+                          Text(
+                            'By continuing, you agree to our Terms of Service & Privacy Policy.\nStrictly for ages 18+.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: AppColors.textSecondary.withOpacity(0.7), fontSize: 11, height: 1.4),
+                          ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              TextButton(
+                                onPressed: () => openLegalPage(context, TermsText.pageName),
+                                child: const Text('Terms of Service', style: TextStyle(fontSize: 12, color: AppColors.primaryLight)),
+                              ),
+                              TextButton(
+                                onPressed: () => openLegalPage(context, 'privacy_policy.html'),
+                                child: const Text('Privacy Policy', style: TextStyle(fontSize: 12, color: AppColors.primaryLight)),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
                         ],
                       ),
-                      const SizedBox(height: 6),
-
-                      // Username-only account (no recovery if the phone is lost)
-                      TextButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const UsernameScreen()),
-                          );
-                        },
-                        child: const Text(
-                          'Create account without Google',
-                          style: TextStyle(color: AppColors.primaryLight, fontSize: 14, fontWeight: FontWeight.w600),
-                        ),
-                      ),
-
-                      const SizedBox(height: 8),
-                      Text(
-                        'By continuing, you agree to Echo Terms of Service & Privacy Policy.\nStrictly for ages 18+.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: AppColors.textSecondary.withOpacity(0.6), fontSize: 11, height: 1.4),
-                      ),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          TextButton(
-                            onPressed: () => openLegalPage(context, TermsText.pageName),
-                            child: const Text('Terms of Service', style: TextStyle(fontSize: 12, color: AppColors.primaryLight)),
-                          ),
-                          TextButton(
-                            onPressed: () => openLegalPage(context, 'privacy_policy.html'),
-                            child: const Text('Privacy Policy', style: TextStyle(fontSize: 12, color: AppColors.primaryLight)),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
+          ],
         ),
       ),
     );

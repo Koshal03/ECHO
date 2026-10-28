@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../constants/app_colors.dart';
 import '../widgets/echo_widgets.dart';
+import '../widgets/echo_brand.dart';
 import 'entry_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -37,22 +38,34 @@ class _SplashScreenState extends State<SplashScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: GradientBackground(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const EchoLogo(size: 280),
-              const SizedBox(height: 32),
-              const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.accent),
-                ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            const Align(alignment: Alignment.bottomCenter, child: EchoWaves(height: 220)),
+            SafeArea(
+              child: Column(
+                children: [
+                  const Spacer(flex: 5),
+                  const EchoWordmark(markSize: 132, titleSize: 48),
+                  const Spacer(flex: 4),
+                  const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.2,
+                      valueColor: AlwaysStoppedAnimation<Color>(AppColors.accent),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  const Text(
+                    'Real People. Real Conversations.',
+                    style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 36),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

@@ -17,6 +17,7 @@ class CoinStoreScreen extends StatefulWidget {
 
 class _CoinStoreScreenState extends State<CoinStoreScreen> {
   StreamSubscription<String>? _sub;
+  bool _showAllHistory = false;
 
   @override
   void initState() {
@@ -47,7 +48,8 @@ class _CoinStoreScreenState extends State<CoinStoreScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text('Coin Store', style: TextStyle(color: AppColors.textPrimary)),
+        title: const Text('Wallet', style: TextStyle(color: AppColors.textPrimary, fontSize: 24, fontWeight: FontWeight.w800)),
+        centerTitle: false,
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -60,41 +62,45 @@ class _CoinStoreScreenState extends State<CoinStoreScreen> {
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
-                  colors: [Color(0xFF2C3A47), Color(0xFF130F40)],
+                  colors: [Color(0xFF16206B), Color(0xFF0B1442)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.coinGold.withOpacity(0.3)),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppColors.coinGold.withOpacity(0.35)),
               ),
               child: Row(
                 children: [
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: AppColors.coinGold.withOpacity(0.2),
+                      color: AppColors.coinGold.withOpacity(0.18),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.monetization_on, color: AppColors.coinGold, size: 36),
+                    child: const Icon(Icons.monetization_on, color: AppColors.coinGold, size: 40),
                   ),
                   const SizedBox(width: 16),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Your Balance',
-                        style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${user?.coins ?? 50} Coins',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Your Balance', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                        const SizedBox(height: 2),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.baseline,
+                          textBaseline: TextBaseline.alphabetic,
+                          children: [
+                            Text(
+                              '${user?.coins ?? 50}',
+                              style: const TextStyle(color: Colors.white, fontSize: 38, fontWeight: FontWeight.w800, height: 1.1),
+                            ),
+                            const SizedBox(width: 8),
+                            const Text('Coins',
+                                style: TextStyle(color: AppColors.textSecondary, fontSize: 18, fontWeight: FontWeight.w600)),
+                          ],
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -144,6 +150,11 @@ class _CoinStoreScreenState extends State<CoinStoreScreen> {
 
             const SizedBox(height: 16),
 
+            const SizedBox(height: 8),
+            const Text('Earn Coins',
+                style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+
             // Rewarded Ad Opportunity (Blueprint Section 7B)
             InkWell(
               onTap: appState.rewardInProgress
@@ -182,12 +193,12 @@ class _CoinStoreScreenState extends State<CoinStoreScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Watch Video Ad',
+                            'Watch Ads',
                             style: TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
                           ),
                           SizedBox(height: 2),
                           Text(
-                            'Earn +10 free coins (sign-in required)',
+                            'Earn +10 coins (sign-in required)',
                             style: TextStyle(color: AppColors.success, fontSize: 12),
                           ),
                         ],
@@ -201,7 +212,7 @@ class _CoinStoreScreenState extends State<CoinStoreScreen> {
 
             const SizedBox(height: 24),
             const Text(
-              'Coin Packages',
+              'Buy Coins',
               style: TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 18,
@@ -234,11 +245,23 @@ class _CoinStoreScreenState extends State<CoinStoreScreen> {
 
             if (user != null && !user.isGuest) ...[
               const SizedBox(height: 24),
-              const Text(
-                'Transaction History',
-                style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Transaction History',
+                      style: TextStyle(color: AppColors.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  if (appState.walletHistory.length > 5)
+                    TextButton(
+                      onPressed: () => setState(() => _showAllHistory = !_showAllHistory),
+                      child: Text(_showAllHistory ? 'Show less' : 'View All',
+                          style: const TextStyle(color: AppColors.primaryLight, fontWeight: FontWeight.w600)),
+                    ),
+                ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               _historyList(appState),
               const SizedBox(height: 12),
             ],
@@ -262,8 +285,9 @@ class _CoinStoreScreenState extends State<CoinStoreScreen> {
       );
     }
     final fmt = DateFormat('d MMM, h:mm a');
+    final rows = _showAllHistory ? appState.walletHistory : appState.walletHistory.take(5).toList();
     return Column(
-      children: appState.walletHistory.map((t) {
+      children: rows.map((t) {
         final credit = t.delta >= 0;
         final isGift = t.source == 'gift_sent';
         return Container(
