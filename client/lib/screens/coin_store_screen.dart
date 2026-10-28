@@ -5,6 +5,7 @@ import '../providers/app_state.dart';
 import '../constants/app_colors.dart';
 import '../models/coin_pack.dart';
 import '../widgets/coin_pack_card.dart';
+import '../widgets/echo_motion.dart';
 import 'package:intl/intl.dart';
 import 'gift_store_screen.dart';
 
@@ -90,8 +91,9 @@ class _CoinStoreScreenState extends State<CoinStoreScreen> {
                           crossAxisAlignment: CrossAxisAlignment.baseline,
                           textBaseline: TextBaseline.alphabetic,
                           children: [
-                            Text(
-                              '${user?.coins ?? 50}',
+                            CountUp(
+                              value: user?.coins ?? 50,
+                              duration: const Duration(milliseconds: 900),
                               style: const TextStyle(color: Colors.white, fontSize: 38, fontWeight: FontWeight.w800, height: 1.1),
                             ),
                             const SizedBox(width: 8),
@@ -227,8 +229,11 @@ class _CoinStoreScreenState extends State<CoinStoreScreen> {
             const SizedBox(height: 16),
 
             // In-app Coin Packs
-            ...CoinPack.packs.map((pack) {
-              return CoinPackCard(
+            ...CoinPack.packs.asMap().entries.map((entry) {
+              final pack = entry.value;
+              return FadeSlideIn(
+                delay: Duration(milliseconds: 120 * entry.key),
+                child: CoinPackCard(
                 pack: pack,
                 onBuy: () async {
                   final messenger = ScaffoldMessenger.of(context);
@@ -240,7 +245,7 @@ class _CoinStoreScreenState extends State<CoinStoreScreen> {
                     );
                   }
                 },
-              );
+              ));
             }).toList(),
 
             if (user != null && !user.isGuest) ...[

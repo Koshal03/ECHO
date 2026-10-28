@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../constants/app_colors.dart';
 import '../widgets/echo_widgets.dart';
+import '../widgets/echo_motion.dart';
 import 'username_screen.dart';
 import 'coin_store_screen.dart';
 import 'settings_screen.dart';
@@ -20,7 +21,7 @@ class ProfileScreen extends StatelessWidget {
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
       child: Column(
-        children: [
+        children: staggerIn([
           // Title row
           Row(
             children: [
@@ -199,7 +200,7 @@ class ProfileScreen extends StatelessWidget {
             soon: true,
             onTap: () => showComingSoon(context, 'Help & Support'),
           ),
-        ],
+        ]),
       ),
     );
   }

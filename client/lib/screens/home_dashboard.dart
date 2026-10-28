@@ -7,6 +7,7 @@ import '../widgets/guest_timer_badge.dart';
 import '../widgets/banner_ad_widget.dart';
 import '../widgets/echo_widgets.dart';
 import '../widgets/echo_brand.dart';
+import '../widgets/echo_motion.dart';
 import 'searching_screen.dart';
 import 'coin_store_screen.dart';
 import 'profile_screen.dart';
@@ -129,7 +130,26 @@ class _HomeDashboardState extends State<HomeDashboard> {
           bottom: false,
           child: Column(
             children: [
-              Expanded(child: _buildCurrentTab(appState)),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 260),
+                  layoutBuilder: (currentChild, previousChildren) => Stack(
+                    fit: StackFit.expand,
+                    children: <Widget>[...previousChildren, if (currentChild != null) currentChild],
+                  ),
+                  transitionBuilder: (child, animation) => FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(
+                      position: Tween<Offset>(begin: const Offset(0, 0.03), end: Offset.zero).animate(animation),
+                      child: child,
+                    ),
+                  ),
+                  child: KeyedSubtree(
+                    key: ValueKey<int>(_currentIndex),
+                    child: _buildCurrentTab(appState),
+                  ),
+                ),
+              ),
               BannerAdWidget(
                 enabled: appState.adsBannerEnabled,
                 sdkReady: appState.adService.isReady,
@@ -175,19 +195,26 @@ class _HomeDashboardState extends State<HomeDashboard> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Container(
-                          width: 26,
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 250),
+                          curve: Curves.easeOut,
+                          width: _currentIndex == i ? 26 : 0,
                           height: 3,
                           margin: const EdgeInsets.only(bottom: 6),
                           decoration: BoxDecoration(
-                            gradient: _currentIndex == i ? AppColors.brandGradient : null,
+                            gradient: AppColors.brandGradient,
                             borderRadius: BorderRadius.circular(3),
                           ),
                         ),
-                        Icon(
-                          items[i][0] as IconData,
-                          size: 24,
-                          color: _currentIndex == i ? AppColors.primary : AppColors.textSecondary,
+                        AnimatedScale(
+                          scale: _currentIndex == i ? 1.18 : 1.0,
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeOutBack,
+                          child: Icon(
+                            items[i][0] as IconData,
+                            size: 24,
+                            color: _currentIndex == i ? AppColors.primary : AppColors.textSecondary,
+                          ),
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -319,7 +346,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
       padding: const EdgeInsets.fromLTRB(18, 12, 18, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+        children: staggerIn([
           _buildHeader(appState),
           const SizedBox(height: 18),
 
@@ -395,7 +422,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                const EchoMark(size: 104),
+                const EchoMark(size: 104, animate: true),
               ],
             ),
           ),
@@ -487,7 +514,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
               ],
             ),
           ),
-        ],
+        ]),
       ),
     );
   }
@@ -499,7 +526,8 @@ class _HomeDashboardState extends State<HomeDashboard> {
     required VoidCallback onTap,
     bool soon = false,
   }) {
-    return InkWell(
+    return PressScale(
+      child: InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(18),
       child: Container(
@@ -528,6 +556,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
             if (soon) const Positioned(top: 5, right: 5, child: SoonPill()),
           ],
         ),
+      ),
       ),
     );
   }

@@ -8,6 +8,7 @@ import 'username_screen.dart';
 import 'email_login_screen.dart';
 import '../widgets/echo_widgets.dart';
 import '../widgets/echo_brand.dart';
+import '../widgets/echo_motion.dart';
 import '../utils/legal_links.dart';
 import '../constants/terms_text.dart';
 
@@ -69,7 +70,7 @@ class _EntryScreenState extends State<EntryScreen> {
       case GoogleOutcome.signedIn:
         Navigator.pushAndRemoveUntil(
           context,
-          MaterialPageRoute(builder: (_) => const HomeDashboard()),
+          fadeRoute(const HomeDashboard()),
           (route) => false,
         );
         return;
@@ -104,7 +105,7 @@ class _EntryScreenState extends State<EntryScreen> {
     if (context.mounted) {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const HomeDashboard()),
+        fadeRoute(const HomeDashboard()),
       );
     }
   }
@@ -146,9 +147,9 @@ class _EntryScreenState extends State<EntryScreen> {
                     constraints: BoxConstraints(minHeight: constraints.maxHeight),
                     child: IntrinsicHeight(
                       child: Column(
-                        children: [
+                        children: staggerIn([
                           const SizedBox(height: 28),
-                          const EchoWordmark(markSize: 84, titleSize: 36),
+                          const EchoWordmark(markSize: 84, titleSize: 36, animate: true),
                           const SizedBox(height: 28),
                           const Text(
                             'Welcome!',
@@ -230,7 +231,7 @@ class _EntryScreenState extends State<EntryScreen> {
                             ],
                           ),
                           const SizedBox(height: 12),
-                        ],
+                        ]),
                       ),
                     ),
                   ),

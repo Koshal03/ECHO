@@ -4,6 +4,7 @@ import '../providers/app_state.dart';
 import '../constants/app_colors.dart';
 import '../widgets/echo_widgets.dart';
 import '../widgets/echo_brand.dart';
+import '../widgets/echo_motion.dart';
 import 'entry_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -28,7 +29,7 @@ class _SplashScreenState extends State<SplashScreen> {
     if (mounted) {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const EntryScreen()),
+        fadeRoute(const EntryScreen()),
       );
     }
   }
@@ -46,7 +47,16 @@ class _SplashScreenState extends State<SplashScreen> {
               child: Column(
                 children: [
                   const Spacer(flex: 5),
-                  const EchoWordmark(markSize: 132, titleSize: 48),
+                  TweenAnimationBuilder<double>(
+                    tween: Tween<double>(begin: 0, end: 1),
+                    duration: const Duration(milliseconds: 950),
+                    curve: Curves.easeOutBack,
+                    builder: (context, v, child) => Opacity(
+                      opacity: v.clamp(0.0, 1.0),
+                      child: Transform.scale(scale: 0.7 + 0.3 * v, child: child),
+                    ),
+                    child: const EchoWordmark(markSize: 132, titleSize: 48, animate: true),
+                  ),
                   const Spacer(flex: 4),
                   const SizedBox(
                     width: 22,
@@ -57,9 +67,12 @@ class _SplashScreenState extends State<SplashScreen> {
                     ),
                   ),
                   const SizedBox(height: 18),
-                  const Text(
-                    'Real People. Real Conversations.',
-                    style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+                  const FadeSlideIn(
+                    delay: Duration(milliseconds: 600),
+                    child: Text(
+                      'Real People. Real Conversations.',
+                      style: TextStyle(color: AppColors.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
                   ),
                   const SizedBox(height: 36),
                 ],

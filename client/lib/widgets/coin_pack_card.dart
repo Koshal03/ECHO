@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/coin_pack.dart';
 import '../constants/app_colors.dart';
+import 'echo_motion.dart';
 
 class CoinPackCard extends StatelessWidget {
   final CoinPack pack;
@@ -29,7 +30,7 @@ class CoinPackCard extends StatelessWidget {
       ),
       child: Stack(
         children: [
-          InkWell(
+          PressScale(child: InkWell(
             onTap: onBuy,
             borderRadius: BorderRadius.circular(16),
             child: Padding(
@@ -76,7 +77,7 @@ class CoinPackCard extends StatelessWidget {
                 ],
               ),
             ),
-          ),
+          )),
           if (pack.isPopular)
             Positioned(
               top: 0,

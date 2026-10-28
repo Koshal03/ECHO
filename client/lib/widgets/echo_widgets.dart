@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
+import 'echo_motion.dart';
 
 /// Full-screen navy gradient with two soft glows. Wrap a screen body in this.
 class GradientBackground extends StatelessWidget {
@@ -240,7 +241,7 @@ class CoinPill extends StatelessWidget {
           children: [
             const Icon(Icons.monetization_on, color: AppColors.coinGold, size: 18),
             const SizedBox(width: 5),
-            Text('$coins', style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 13)),
+            CountUp(value: coins, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 13)),
             const SizedBox(width: 6),
             Container(
               width: 20,
