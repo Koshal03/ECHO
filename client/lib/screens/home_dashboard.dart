@@ -6,6 +6,8 @@ import '../constants/app_colors.dart';
 import '../widgets/guest_timer_badge.dart';
 import '../widgets/banner_ad_widget.dart';
 import '../widgets/echo_widgets.dart';
+import '../widgets/echo_brand.dart';
+import '../widgets/echo_motion.dart';
 import 'searching_screen.dart';
 import 'coin_store_screen.dart';
 import 'profile_screen.dart';
@@ -128,7 +130,26 @@ class _HomeDashboardState extends State<HomeDashboard> {
           bottom: false,
           child: Column(
             children: [
-              Expanded(child: _buildCurrentTab(appState)),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 260),
+                  layoutBuilder: (currentChild, previousChildren) => Stack(
+                    fit: StackFit.expand,
+                    children: <Widget>[...previousChildren, if (currentChild != null) currentChild],
+                  ),
+                  transitionBuilder: (child, animation) => FadeTransition(
+                    opacity: animation,
+                    child: SlideTransition(
+                      position: Tween<Offset>(begin: const Offset(0, 0.03), end: Offset.zero).animate(animation),
+                      child: child,
+                    ),
+                  ),
+                  child: KeyedSubtree(
+                    key: ValueKey<int>(_currentIndex),
+                    child: _buildCurrentTab(appState),
+                  ),
+                ),
+              ),
               BannerAdWidget(
                 enabled: appState.adsBannerEnabled,
                 sdkReady: appState.adService.isReady,
@@ -174,19 +195,26 @@ class _HomeDashboardState extends State<HomeDashboard> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Container(
-                          width: 26,
+                        AnimatedContainer(
+                          duration: const Duration(milliseconds: 250),
+                          curve: Curves.easeOut,
+                          width: _currentIndex == i ? 26 : 0,
                           height: 3,
                           margin: const EdgeInsets.only(bottom: 6),
                           decoration: BoxDecoration(
-                            gradient: _currentIndex == i ? AppColors.brandGradient : null,
+                            gradient: AppColors.brandGradient,
                             borderRadius: BorderRadius.circular(3),
                           ),
                         ),
-                        Icon(
-                          items[i][0] as IconData,
-                          size: 24,
-                          color: _currentIndex == i ? AppColors.primary : AppColors.textSecondary,
+                        AnimatedScale(
+                          scale: _currentIndex == i ? 1.18 : 1.0,
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeOutBack,
+                          child: Icon(
+                            items[i][0] as IconData,
+                            size: 24,
+                            color: _currentIndex == i ? AppColors.primary : AppColors.textSecondary,
+                          ),
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -224,16 +252,12 @@ class _HomeDashboardState extends State<HomeDashboard> {
   // ---------------- Home tab ----------------
   Widget _buildHeader(AppState appState) {
     final user = appState.currentUser;
+    final hasNotice = appState.broadcastMessage != null;
     return Row(
       children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: const EchoLogo(size: 40),
-        ),
-        const SizedBox(width: 10),
-        const Text(
-          'Echo',
-          style: TextStyle(color: AppColors.textPrimary, fontSize: 26, fontWeight: FontWeight.w800),
+        CoinPill(
+          coins: user?.coins ?? 50,
+          onTap: () => setState(() => _currentIndex = 1),
         ),
         const Spacer(),
         if (user != null && user.isGuest)
@@ -249,11 +273,71 @@ class _HomeDashboardState extends State<HomeDashboard> {
               },
             ),
           ),
-        CoinPill(
-          coins: user?.coins ?? 50,
-          onTap: () => setState(() => _currentIndex = 1),
+        // Bell: shows the latest message from the Echo team (admin broadcast), if there is one.
+        InkWell(
+          onTap: () => _showNotifications(appState),
+          customBorder: const CircleBorder(),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceElevated,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: AppColors.cardBorder.withOpacity(0.6)),
+                ),
+                child: const Icon(Icons.notifications_none_rounded, color: AppColors.textPrimary, size: 23),
+              ),
+              if (hasNotice)
+                Positioned(
+                  top: -1,
+                  right: -1,
+                  child: Container(
+                    width: 14,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: AppColors.danger,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.background, width: 2),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ],
+    );
+  }
+
+  void _showNotifications(AppState appState) {
+    final msg = appState.broadcastMessage;
+    if (msg == null) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text('No new notifications.'), backgroundColor: AppColors.surfaceElevated),
+        );
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Message from Echo', style: TextStyle(color: AppColors.textPrimary)),
+        content: Text(msg, style: const TextStyle(color: AppColors.textSecondary, height: 1.4)),
+        actions: [
+          TextButton(
+            onPressed: () {
+              appState.clearBroadcast();
+              Navigator.pop(dialogContext);
+            },
+            child: const Text('Dismiss'),
+          ),
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
+        ],
+      ),
     );
   }
 
@@ -262,37 +346,9 @@ class _HomeDashboardState extends State<HomeDashboard> {
       padding: const EdgeInsets.fromLTRB(18, 12, 18, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+        children: staggerIn([
           _buildHeader(appState),
           const SizedBox(height: 18),
-
-          // Message from the Echo team (admin broadcast)
-          if (appState.broadcastMessage != null)
-            Container(
-              margin: const EdgeInsets.only(bottom: 16),
-              padding: const EdgeInsets.fromLTRB(14, 10, 4, 10),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.18),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.primary),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.campaign_rounded, color: AppColors.primaryLight),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      appState.broadcastMessage!,
-                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 13, height: 1.35),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close_rounded, color: AppColors.textSecondary, size: 20),
-                    onPressed: appState.clearBroadcast,
-                  ),
-                ],
-              ),
-            ),
 
           // Guest time warning
           if (appState.show5MinWarning && (appState.currentUser?.isGuest ?? false))
@@ -330,7 +386,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
           // Hero banner
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(20, 20, 12, 20),
+            padding: const EdgeInsets.fromLTRB(20, 20, 14, 20),
             decoration: BoxDecoration(
               gradient: AppColors.heroGradient,
               borderRadius: BorderRadius.circular(24),
@@ -344,11 +400,11 @@ class _HomeDashboardState extends State<HomeDashboard> {
                     children: [
                       const Text(
                         'Meet New People',
-                        style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800),
+                        style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       Text(
-                        'Start a random voice call and make new friends around the world.',
+                        'Video Call  \u2022  Audio Call  \u2022  Text Chat',
                         style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 12.5, height: 1.4),
                       ),
                       const SizedBox(height: 16),
@@ -366,7 +422,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                const EchoLogo(size: 110),
+                const EchoMark(size: 104, animate: true),
               ],
             ),
           ),
@@ -384,16 +440,16 @@ class _HomeDashboardState extends State<HomeDashboard> {
                   onTap: () => _startCall(appState, mode: 'video'),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 12),
               Expanded(
                 child: _quickTile(
-                  icon: Icons.mic_rounded,
+                  icon: Icons.call_rounded,
                   label: 'Audio Call',
                   colors: const [Color(0xFF16C7A8), Color(0xFF0E8A8F)],
                   onTap: () => _startCall(appState, mode: 'audio'),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 12),
               Expanded(
                 child: _quickTile(
                   icon: Icons.chat_bubble_rounded,
@@ -402,17 +458,41 @@ class _HomeDashboardState extends State<HomeDashboard> {
                   onTap: () => _startCall(appState, mode: 'text'),
                 ),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _quickTile(
-                  icon: Icons.groups_rounded,
-                  label: 'Rooms',
-                  colors: const [Color(0xFF2F80FF), Color(0xFF1B4FD0)],
-                  soon: true,
-                  onTap: () => showComingSoon(context, 'Rooms'),
-                ),
-              ),
             ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // Rooms (not built yet)
+          GlassCard(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            radius: 18,
+            onTap: () => showComingSoon(context, 'Rooms'),
+            child: Row(
+              children: [
+                const IconTile(icon: Icons.groups_rounded, colors: [Color(0xFF2F80FF), Color(0xFF1B4FD0)], size: 44),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Rooms', style: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w700)),
+                      SizedBox(height: 2),
+                      Text('Group conversations', style: TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: AppColors.purple.withOpacity(0.25),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Text('Coming Soon',
+                      style: TextStyle(color: AppColors.textPrimary, fontSize: 11, fontWeight: FontWeight.w700)),
+                ),
+              ],
+            ),
           ),
 
           const SizedBox(height: 20),
@@ -434,7 +514,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
               ],
             ),
           ),
-        ],
+        ]),
       ),
     );
   }
@@ -446,11 +526,12 @@ class _HomeDashboardState extends State<HomeDashboard> {
     required VoidCallback onTap,
     bool soon = false,
   }) {
-    return InkWell(
+    return PressScale(
+      child: InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(18),
       child: Container(
-        height: 96,
+        height: 112,
         decoration: BoxDecoration(
           color: AppColors.surfaceElevated.withOpacity(0.8),
           borderRadius: BorderRadius.circular(18),
@@ -462,12 +543,12 @@ class _HomeDashboardState extends State<HomeDashboard> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  IconTile(icon: icon, colors: colors, size: 42),
-                  const SizedBox(height: 8),
+                  IconTile(icon: icon, colors: colors, size: 50),
+                  const SizedBox(height: 10),
                   Text(
                     label,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: AppColors.textPrimary, fontSize: 11.5, fontWeight: FontWeight.w600),
+                    style: const TextStyle(color: AppColors.textPrimary, fontSize: 13, fontWeight: FontWeight.w600),
                   ),
                 ],
               ),
@@ -475,6 +556,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
             if (soon) const Positioned(top: 5, right: 5, child: SoonPill()),
           ],
         ),
+      ),
       ),
     );
   }

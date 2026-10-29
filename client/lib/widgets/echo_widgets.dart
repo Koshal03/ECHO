@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
+import 'echo_motion.dart';
 
 /// Full-screen navy gradient with two soft glows. Wrap a screen body in this.
 class GradientBackground extends StatelessWidget {
@@ -67,6 +68,7 @@ class GradientButton extends StatelessWidget {
   final Gradient gradient;
   final double height;
   final bool busy;
+  final String? subLabel;
 
   const GradientButton({
     super.key,
@@ -76,6 +78,7 @@ class GradientButton extends StatelessWidget {
     this.gradient = AppColors.brandGradient,
     this.height = 56,
     this.busy = false,
+    this.subLabel,
   });
 
   @override
@@ -102,7 +105,14 @@ class GradientButton extends StatelessWidget {
                   : Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(label, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
+                        Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(label, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
+                            if (subLabel != null)
+                              Text(subLabel!, style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 11)),
+                          ],
+                        ),
                         if (trailingIcon != null) ...[
                           const SizedBox(width: 8),
                           Icon(trailingIcon, color: Colors.white, size: 20),
@@ -231,7 +241,7 @@ class CoinPill extends StatelessWidget {
           children: [
             const Icon(Icons.monetization_on, color: AppColors.coinGold, size: 18),
             const SizedBox(width: 5),
-            Text('$coins', style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 13)),
+            CountUp(value: coins, style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w700, fontSize: 13)),
             const SizedBox(width: 6),
             Container(
               width: 20,
