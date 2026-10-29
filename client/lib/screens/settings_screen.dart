@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import '../constants/app_colors.dart';
 import '../widgets/echo_widgets.dart';
+import '../widgets/echo_motion.dart';
 import 'entry_screen.dart';
 import 'username_screen.dart';
 import '../utils/legal_links.dart';
@@ -126,13 +127,14 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final user = Provider.of<AppState>(context).currentUser;
     return Scaffold(
       backgroundColor: AppColors.background,
       body: GradientBackground(
         child: SafeArea(
           child: ListView(
             padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
-            children: [
+            children: staggerIn([
               Row(
                 children: [
                   IconButton(
@@ -140,10 +142,47 @@ class SettingsScreen extends StatelessWidget {
                     icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary),
                   ),
                   const SizedBox(width: 4),
-                  const Text('Settings', style: TextStyle(color: AppColors.textPrimary, fontSize: 22, fontWeight: FontWeight.w800)),
+                  const Text('Settings', style: TextStyle(color: AppColors.textPrimary, fontSize: 24, fontWeight: FontWeight.w800)),
                 ],
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
+
+              // Who is signed in
+              if (user != null)
+                GlassCard(
+                  margin: const EdgeInsets.only(bottom: 18),
+                  padding: const EdgeInsets.all(14),
+                  radius: 18,
+                  onTap: () => _showAccount(context),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: const BoxDecoration(shape: BoxShape.circle, gradient: AppColors.brandGradient),
+                        child: const Icon(Icons.person_rounded, color: Colors.white, size: 26),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(user.displayName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w800)),
+                            const SizedBox(height: 2),
+                            Text(user.isGuest ? 'Guest. Tap to create an account' : '@${user.username}',
+                                style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right, color: AppColors.textSecondary),
+                    ],
+                  ),
+                ),
+
+              _section('Account'),
               _tile(
                 icon: Icons.person_rounded,
                 colors: const [Color(0xFF4C7DFF), Color(0xFF2F4FD8)],
@@ -158,16 +197,8 @@ class SettingsScreen extends StatelessWidget {
                 subtitle: 'Control your data',
                 onTap: () => _showPrivacy(context),
               ),
-              _tile(
-                icon: Icons.gavel_rounded,
-                colors: const [Color(0xFF7A5CFF), Color(0xFF4C7DFF)],
-                title: 'Terms and Conditions',
-                subtitle: 'Read the rules of using Echo',
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const TermsScreen(readOnly: true)),
-                ),
-              ),
+
+              _section('Preferences'),
               _tile(
                 icon: Icons.notifications_rounded,
                 colors: const [Color(0xFFFF4FD8), Color(0xFFB44CFF)],
@@ -192,6 +223,25 @@ class SettingsScreen extends StatelessWidget {
                 soon: true,
                 onTap: () => showComingSoon(context, 'Language settings'),
               ),
+
+              _section('Legal & help'),
+              _tile(
+                icon: Icons.gavel_rounded,
+                colors: const [Color(0xFF7A5CFF), Color(0xFF4C7DFF)],
+                title: 'Terms and Conditions',
+                subtitle: 'Read the rules of using Echo',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const TermsScreen(readOnly: true)),
+                ),
+              ),
+              _tile(
+                icon: Icons.privacy_tip_rounded,
+                colors: const [Color(0xFF16C7A8), Color(0xFF0E8A8F)],
+                title: 'Privacy Policy',
+                subtitle: 'How we handle your data',
+                onTap: () => openLegalPage(context, 'privacy_policy.html'),
+              ),
               _tile(
                 icon: Icons.help_rounded,
                 colors: const [Color(0xFF4C7DFF), Color(0xFF7A5CFF)],
@@ -200,7 +250,8 @@ class SettingsScreen extends StatelessWidget {
                 soon: true,
                 onTap: () => showComingSoon(context, 'Help & Support'),
               ),
-              const SizedBox(height: 6),
+
+              _section('Danger zone'),
               _tile(
                 icon: Icons.delete_outline_rounded,
                 colors: const [Color(0xFFFF3B6B), Color(0xFFD62B57)],
@@ -209,19 +260,27 @@ class SettingsScreen extends StatelessWidget {
                 danger: true,
                 onTap: () => _confirmDelete(context),
               ),
-              const SizedBox(height: 22),
+              const SizedBox(height: 18),
               GradientButton(
                 label: 'Log Out',
                 trailingIcon: Icons.logout_rounded,
                 gradient: const LinearGradient(colors: [Color(0xFF4F46E5), Color(0xFFD946EF)]),
                 onPressed: () => _logout(context),
               ),
-            ],
+            ]),
           ),
         ),
       ),
     );
   }
+
+  Widget _section(String label) => Padding(
+        padding: const EdgeInsets.fromLTRB(4, 8, 0, 10),
+        child: Text(
+          label.toUpperCase(),
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 1.2),
+        ),
+      );
 
   Widget _tile({
     required IconData icon,
