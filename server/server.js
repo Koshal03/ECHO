@@ -536,6 +536,8 @@ app.post('/api/wallet/purchase', requireAuth(), requireTerms, walletLimiter, asy
     }
     if (!v.ok) {
       await db.deletePurchase(purchaseToken);
+      purchaseFailures.push({ userId: user.userId, at: Date.now(), reason: String(v.reason || 'not verified').slice(0, 80) });
+      if (purchaseFailures.length > 300) purchaseFailures.shift();
       return res.status(402).json({ error: v.reason || 'Purchase could not be verified.' });
     }
     const coins = PACK_MAP[productId];
@@ -569,6 +571,8 @@ const giftLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, name: 'gifts' });
 const giftInFlight = new Set();        // userId: one gift request at a time per person
 const lastGiftAt = new Map();          // userId -> ms of last accepted gift
 const memGiftRequests = new Map();     // memory-only mode: "user:requestId" -> first result (idempotency)
+const giftLog = [];                    // memory-only mode: recent gifts, for the admin report (the database is used when it is on)
+const purchaseFailures = [];           // failed Google Play purchase checks, for admin alerts
 
 const SOURCE_TITLES = {
   welcome_bonus: 'Welcome bonus', google_play: 'Coin pack purchase', rewarded_ad: 'Rewarded ad',
@@ -674,6 +678,9 @@ app.post('/api/gifts/send', requireAuth(), requireTerms, giftLimiter, async (req
     }
 
     lastGiftAt.set(user.userId, Date.now());
+    giftLog.push({ giftEventId: result.giftEventId, senderId: user.userId, recipientId: other.id, giftId: gift.id,
+      price: gift.price, createdAt: Date.now() });
+    if (giftLog.length > 1000) giftLog.shift();
     pushLedger({ transactionId: 'tx_' + uuidv4(), userId: user.userId, entryType: 'debit', coinDelta: -gift.price,
       source: 'gift_sent', productId: giftId, reference: result.giftEventId, timestamp: Date.now() });
     recipientSocket.emit('gift-received', {
@@ -970,6 +977,130 @@ app.post('/api/admin/gift-coins', adminLimiter, requireAdmin, async (req, res) =
   sockets.get(user.userId)?.emit('wallet-updated', { coins: user.coins });
   adminLog(`coins ${n > 0 ? '+' : ''}${n} -> ${user.userId}`);
   res.json({ success: true, newBalance: user.coins });
+});
+
+// ---------------- Admin: gift / filter-unlock reporting + alerts ----------------
+// Thresholds can be tuned with environment variables; the defaults suit a small app.
+const GIFT_ALERT_COUNT = Number(process.env.GIFT_ALERT_COUNT) || 8;               // gifts by one person within 10 minutes
+const GIFT_SPEND_ALERT_COINS = Number(process.env.GIFT_SPEND_ALERT_COINS) || 500;  // coins one person spends on gifts in 24 hours
+const ADMIN_ADJUST_ALERT_COINS = Number(process.env.ADMIN_ADJUST_ALERT_COINS) || 1000;
+const REFUND_ALERT_COUNT = 3;
+const PURCHASE_FAIL_ALERT_COUNT = 3;
+const REPORT_DAY = 24 * 3600 * 1000;
+const GIFT_REPORT_CACHE_MS = process.env.ADMIN_REPORT_CACHE_MS !== undefined ? Number(process.env.ADMIN_REPORT_CACHE_MS) : 8000;
+let giftReportCache = { at: 0, data: null };
+
+async function buildGiftReport() {
+  const now = Date.now();
+  const sources = ['gift_refund', 'filter_unlock', 'admin_gift', 'admin_adjust'];
+  let gifts = await db.getGiftEvents(now - 7 * REPORT_DAY);
+  let ledger = await db.getLedgerBySources(sources, now - REPORT_DAY);
+  if (!gifts) gifts = giftLog.filter((g) => g.createdAt >= now - 7 * REPORT_DAY).slice().reverse();
+  if (!ledger) {
+    ledger = walletLedgers.filter((e) => sources.includes(e.source) && e.timestamp >= now - REPORT_DAY)
+      .map((e) => ({ userId: e.userId, delta: e.coinDelta, source: e.source, createdAt: e.timestamp })).reverse();
+  }
+  const giftName = (id) => (giftCatalog.find((g) => g.id === id) || {}).name || id;
+  const d24 = gifts.filter((g) => g.createdAt >= now - REPORT_DAY);
+  const sum = (arr, f) => arr.reduce((a, x) => a + f(x), 0);
+
+  // who sent the most in the last 24 hours
+  const bySender = new Map();
+  for (const g of d24) {
+    const e = bySender.get(g.senderId) || { userId: g.senderId, count: 0, coins: 0 };
+    e.count += 1; e.coins += g.price;
+    bySender.set(g.senderId, e);
+  }
+  const topSenders = Array.from(bySender.values()).sort((a, b) => b.coins - a.coins).slice(0, 5)
+    .map((e) => ({ ...e, name: nameOf(e.userId) }));
+
+  const unlocks = ledger.filter((e) => e.source === 'filter_unlock');
+  const alerts = [];
+
+  // 1) many gifts in a short time
+  const times = new Map();
+  for (const g of gifts) {
+    if (g.createdAt < now - 3600 * 1000) continue;
+    if (!times.has(g.senderId)) times.set(g.senderId, []);
+    times.get(g.senderId).push(g.createdAt);
+  }
+  for (const [uid, list] of times) {
+    list.sort((a, b) => a - b);
+    let best = 0;
+    for (let i = 0, j = 0; i < list.length; i++) {
+      while (list[i] - list[j] > 10 * 60 * 1000) j++;
+      best = Math.max(best, i - j + 1);
+    }
+    if (best >= GIFT_ALERT_COUNT) {
+      alerts.push({ level: 'warn', userId: uid, title: 'Unusual gift activity',
+        detail: `${nameOf(uid)} sent ${best} gifts within 10 minutes.` });
+    }
+  }
+  // 2) a lot of coins spent on gifts
+  for (const e of bySender.values()) {
+    if (e.coins >= GIFT_SPEND_ALERT_COINS) {
+      alerts.push({ level: 'warn', userId: e.userId, title: 'High gift spending',
+        detail: `${nameOf(e.userId)} spent ${e.coins} coins on ${e.count} gifts in the last 24 hours.` });
+    }
+  }
+  // 3) gifts that keep failing and being refunded
+  const refunds = new Map();
+  for (const e of ledger) if (e.source === 'gift_refund') refunds.set(e.userId, (refunds.get(e.userId) || 0) + 1);
+  for (const [uid, n] of refunds) {
+    if (n >= REFUND_ALERT_COUNT) {
+      alerts.push({ level: 'info', userId: uid, title: 'Repeated gift refunds',
+        detail: `${nameOf(uid)} had ${n} gifts refunded in 24 hours (calls ending mid-send).` });
+    }
+  }
+  // 4) failed Google Play purchase checks
+  const fails = new Map();
+  for (const f of purchaseFailures) if (f.at >= now - 3600 * 1000) fails.set(f.userId, (fails.get(f.userId) || 0) + 1);
+  for (const [uid, n] of fails) {
+    if (n >= PURCHASE_FAIL_ALERT_COUNT) {
+      alerts.push({ level: 'warn', userId: uid, title: 'Repeated payment failures',
+        detail: `${nameOf(uid)} had ${n} purchases fail verification in the last hour.` });
+    }
+  }
+  // 5) big manual coin changes made from the admin panel
+  for (const e of ledger) {
+    if ((e.source === 'admin_gift' || e.source === 'admin_adjust') && Math.abs(e.delta) >= ADMIN_ADJUST_ALERT_COINS) {
+      alerts.push({ level: 'info', userId: e.userId, title: 'Large admin coin change',
+        detail: `${e.delta > 0 ? '+' : ''}${e.delta} coins for ${nameOf(e.userId)} at ${new Date(e.createdAt).toISOString()}.` });
+    }
+  }
+
+  return {
+    generatedAt: now,
+    summary: {
+      gifts24h: d24.length,
+      coins24h: sum(d24, (g) => g.price),
+      senders24h: bySender.size,
+      gifts7d: gifts.length,
+      coins7d: sum(gifts, (g) => g.price),
+      refunds24h: ledger.filter((e) => e.source === 'gift_refund').length,
+      filterUnlocks24h: unlocks.length,
+      filterCoins24h: sum(unlocks, (e) => Math.abs(e.delta)),
+    },
+    topSenders,
+    recent: gifts.slice(0, 50).map((g) => ({
+      eventId: g.giftEventId, time: g.createdAt, from: nameOf(g.senderId), to: nameOf(g.recipientId),
+      gift: giftName(g.giftId), coins: g.price,
+    })),
+    unlocks: unlocks.slice(0, 20).map((e) => ({ time: e.createdAt, user: nameOf(e.userId), filter: e.productId || '-', coins: Math.abs(e.delta) })),
+    alerts,
+  };
+}
+
+app.get('/api/admin/gifts', adminLimiter, requireAdmin, async (req, res) => {
+  try {
+    if (!giftReportCache.data || Date.now() - giftReportCache.at > GIFT_REPORT_CACHE_MS) {
+      giftReportCache = { at: Date.now(), data: await buildGiftReport() };
+    }
+    res.json(giftReportCache.data);
+  } catch (e) {
+    console.error('[ADMIN] gift report failed:', e.message);
+    dbBusy(res);
+  }
 });
 
 app.post('/api/admin/broadcast', adminLimiter, requireAdmin, (req, res) => {

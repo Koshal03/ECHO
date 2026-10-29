@@ -219,9 +219,29 @@ async function getLedger(userId, limit = 30) {
   return rows.map((r) => ({ id: r.transaction_id, delta: r.coin_delta, source: r.source, productId: r.product_id, createdAt: ms(r.created_at) }));
 }
 
+
+// ---------- Admin reporting (reads only) ----------
+async function getGiftEvents(sinceMs, limit = 2000) {
+  if (!enabled) return null;
+  const rows = ok(await supabase.from('gift_events')
+    .select('gift_event_id, sender_id, recipient_id, call_id, gift_id, coin_price, created_at')
+    .gte('created_at', new Date(sinceMs).toISOString()).order('created_at', { ascending: false }).limit(limit));
+  return rows.map((r) => ({ giftEventId: r.gift_event_id, senderId: r.sender_id, recipientId: r.recipient_id,
+    giftId: r.gift_id, price: r.coin_price, createdAt: ms(r.created_at) }));
+}
+
+async function getLedgerBySources(sources, sinceMs, limit = 500) {
+  if (!enabled) return null;
+  const rows = ok(await supabase.from('wallet_ledger')
+    .select('user_id, coin_delta, source, product_id, created_at')
+    .in('source', sources).gte('created_at', new Date(sinceMs).toISOString())
+    .order('created_at', { ascending: false }).limit(limit));
+  return rows.map((r) => ({ userId: r.user_id, delta: r.coin_delta, source: r.source, productId: r.product_id, createdAt: ms(r.created_at) }));
+}
+
 module.exports = {
   enabled, supabase, loadAll, insertUser, addCoins, insertGuest, insertBlock, insertReport,
   claimPurchase, getPurchase, markPurchaseCredited, deletePurchase, adTxExists, claimAdTx,
   deleteUser, setUserStatus, updateReportStatus, setTermsAccepted,
-  loadGiftCatalog, sendGift, getLedger,
+  loadGiftCatalog, sendGift, getLedger, getGiftEvents, getLedgerBySources,
 };
