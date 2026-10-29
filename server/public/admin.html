@@ -39,6 +39,14 @@
 
 <main id="app" style="display:none">
   <section class="stats" id="stats"></section>
+  <section class="panel"><h2>Coin &amp; gift alerts</h2><div id="giftAlerts"></div></section>
+  <section class="panel">
+    <h2>Gift activity</h2>
+    <section class="stats" id="giftStats" style="margin-bottom:12px"></section>
+    <h2 style="margin-top:6px">Top senders (24 hours)</h2><div class="scroll" id="giftTop"></div>
+    <h2 style="margin-top:14px">Recent gifts</h2><div class="scroll" id="giftRecent"></div>
+    <h2 style="margin-top:14px">Premium filter unlocks</h2><div class="scroll" id="unlocks"></div>
+  </section>
   <section class="panel"><h2>Open reports</h2><div class="scroll" id="reports"></div></section>
   <section class="panel"><h2>Live calls</h2><div class="scroll" id="calls"></div></section>
   <section class="panel"><h2>Recent members</h2><div class="scroll" id="users"></div></section>
@@ -134,7 +142,32 @@
     })));
   }
 
+  function renderGifts(g) {
+    var m = g.summary;
+    var cards = [['Gifts (24h)', m.gifts24h], ['Coins spent on gifts (24h)', m.coins24h], ['People sending (24h)', m.senders24h],
+      ['Gifts (7 days)', m.gifts7d], ['Gift refunds (24h)', m.refunds24h], ['Filter unlocks (24h)', m.filterUnlocks24h]];
+    $('giftStats').replaceChildren.apply($('giftStats'), cards.map(function (c) { return h('div', { class: 'stat' }, h('b', null, c[1]), h('span', null, c[0])); }));
+
+    $('giftAlerts').replaceChildren(g.alerts.length ? h('div', null, g.alerts.map(function (a) {
+      return h('div', { style: 'padding:8px 0;border-bottom:1px solid var(--line)' },
+        h('span', { class: 'tag' + (a.level === 'warn' ? ' bad' : '') }, a.level === 'warn' ? 'Check' : 'Note'), ' ', h('b', null, a.title),
+        h('div', { class: 'empty' }, a.detail),
+        a.userId ? h('button', { class: 'amber', onclick: function () { $('gu').value = a.userId; $('ga').focus(); } }, 'Open in coins box') : null);
+    })) : h('div', { class: 'empty' }, 'No alerts. Everything looks normal.'));
+
+    $('giftTop').replaceChildren(table(['Person', 'Gifts', 'Coins'], g.topSenders.map(function (t) {
+      return h('tr', null, h('td', null, t.name), h('td', null, t.count), h('td', null, t.coins));
+    })));
+    $('giftRecent').replaceChildren(table(['When', 'From', 'To', 'Gift', 'Coins', 'Reference'], g.recent.map(function (r) {
+      return h('tr', null, h('td', null, fmtTime(r.time)), h('td', null, r.from), h('td', null, r.to), h('td', null, r.gift), h('td', null, r.coins), h('td', null, r.eventId));
+    })));
+    $('unlocks').replaceChildren(table(['When', 'Person', 'Filter', 'Coins'], g.unlocks.map(function (u) {
+      return h('tr', null, h('td', null, fmtTime(u.time)), h('td', null, u.user), h('td', null, u.filter), h('td', null, u.coins));
+    })));
+  }
+
   function refresh() {
+    api('/api/admin/gifts').then(renderGifts).catch(function () { /* the rest of the panel still works */ });
     api('/api/admin/overview').then(function (d) { showApp(); render(d); }).catch(function (e) {
       if (e.status === 401) { signOut(); $('loginErr').textContent = 'Wrong password.'; }
       else if (e.status === 503) { signOut(); $('loginErr').textContent = 'Admin is disabled: set ADMIN_PASSWORD on the server.'; }
